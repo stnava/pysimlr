@@ -19,10 +19,16 @@ Implemented in `src/pysimlr/api.py`; scikit-learn layer in `src/pysimlr/sklearn.
 budget unit, presets and every accepted parameter with its default.
 
 Not registered:
-- `flow_simr` has no linear first layer and returns no per-view basis `v`.
+- `flow_simr` has no linear first layer and returns no per-view basis `v`. It defaults to `scale_bound=0.5` (preventing out-of-sample multiplicative `exp(s)` blow-up on ambient $p_m \to p_m$ RealNVP bijections) and accepts `base_distribution="diag" | "gaussian_pca"` (`GaussianPCABase`) and `varimax=False | True` (shared $O(k)$ Kaiser Varimax gauge rotation on stacked training structure coefficients that preserves exact flow NLL, reconstructions, and conditional cross-view inference).
 - Per-view PCA (`MultiViewPCA`) has no shared k-dimensional latent.
 
 Both remain available directly.
+
+### Normalizing-flow options on `flow_v` (`flow_simr_v`) and `flow_simr`
+
+- **`flow_type="auto" | "realnvp" | "spline1d"` on `flow_v` (`flow_simr_v`):** `"auto"` (default) resolves via `resolve_flow_type(flow_type, k)` to `"spline1d"` (`ActNormElementwiseRQSplineFlow`: `PositiveActNorm1d` + monotone Durkan et al. 2019 rational-quadratic spline layers) when `k == 1`—fixing the degeneracy where `NormalizingFlow(dim=1)` has an empty conditioner split and reduces to a strictly affine bijection—and to `"realnvp"` (`NormalizingFlow`) when `k >= 2` (keeping all `k >= 2` default fits bit-identical). Recorded in `result["flow_type"]` (resolved) and `result["flow_type_requested"]`.
+- **`pcf_alpha: float = 0.0` on `flow_v` (`flow_simr_v`):** opt-in post-warmup weight on the exact Hadamard Principal Component Flow (`exact_pcf_penalty_bpd`, Cunningham et al., ICML 2022) encoder Jacobian row-orthogonality penalty in bits/dim on detached first-layer projections (`k >= 2`, `flow_type="realnvp"`, observed rows under `missing_rows="mask"`). Recorded in `result["pcf_alpha"]`.
+- **`flow_simr` (`scale_bound=0.5`, `base_distribution="diag" | "gaussian_pca"`, `varimax: bool = False`):** records `result["base_distribution"]`, `result["varimax"]`, and `result["varimax_rotation"]` (`(k, k)` orthogonal tensor when `varimax=True`, else `None`).
 
 ## Calling
 

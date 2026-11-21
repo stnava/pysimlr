@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.44.0"
+__version__ = "0.45.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -99,14 +99,24 @@ from .deep import (
     predict_deep
 )
 from .flows import (
-    flow_simr,
-    flow_simr_v,
+    FLOW_BASE_DISTRIBUTIONS,
+    FLOW_TYPES,
+    ActNormElementwiseRQSplineFlow,
+    ElementwiseRQSplineFlow,
+    ElementwiseRQSplineLayer,
+    FlowConditionalInference,
+    FlowDecoderWrapper,
+    FlowEncoderWrapper,
     FlowSiMRModel,
     FlowSiMRVModel,
-    FlowEncoderWrapper,
-    FlowDecoderWrapper,
-    FlowConditionalInference,
+    GaussianPCABase,
     NormalizingFlow,
+    PositiveActNorm1d,
+    PostRotatedFlowWrapper,
+    exact_pcf_penalty_bpd,
+    flow_simr,
+    flow_simr_v,
+    resolve_flow_type,
 )
 from .consensus import (
     compute_shared_consensus
@@ -362,6 +372,16 @@ __all__ = [
     'predict_deep',
     'flow_simr',
     'flow_simr_v',
+    'FLOW_TYPES',
+    'FLOW_BASE_DISTRIBUTIONS',
+    'resolve_flow_type',
+    'PositiveActNorm1d',
+    'ElementwiseRQSplineLayer',
+    'ElementwiseRQSplineFlow',
+    'ActNormElementwiseRQSplineFlow',
+    'GaussianPCABase',
+    'PostRotatedFlowWrapper',
+    'exact_pcf_penalty_bpd',
     'FlowSiMRModel',
     'FlowSiMRVModel',
     'FlowEncoderWrapper',

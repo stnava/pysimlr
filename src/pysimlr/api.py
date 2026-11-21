@@ -367,8 +367,9 @@ _SPECS = [
                "NED++: NED with per-view private latents "
                "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
     MethodSpec("flow_v", "flow", flow_simr_v, _predict_deep, "epochs",
-               "Flow-SiMR-V: linear first layer V, RealNVP flow per view "
-               "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
+               "Flow-SiMR-V: linear first layer V, per-view normalizing flow "
+               "(monotone RQS at k=1, RealNVP at k>=2; matched energy: 'align'; "
+               "counterpart to linear 'recon_r2')."),
     MethodSpec("pca", "baseline", pca_joint, _predict_joint, "none",
                "PCA of the concatenated standardized views (joint basis; matched_energy: None)."),
     MethodSpec("nsa_pipeline", "baseline", nsa_pipeline, _predict_joint, "none",

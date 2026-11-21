@@ -1,10 +1,34 @@
+import math
 import warnings
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union, Sequence
 from .utils import basis_rank_report
 from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, check_collapse_threshold, check_nsa_w
+
+FLOW_TYPES: Tuple[str, ...] = ("auto", "realnvp", "spline1d")
+FLOW_BASE_DISTRIBUTIONS: Tuple[str, ...] = ("diag", "gaussian_pca")
+
+
+def resolve_flow_type(flow_type: str, k: int) -> str:
+    """Resolve ``flow_type`` for `FlowSiMRVModel` / `flow_simr_v`.
+
+    ``"auto"`` selects ``"spline1d"`` (`ActNormElementwiseRQSplineFlow`) when
+    ``k == 1``—where affine-coupling RealNVP has an empty conditioner partition
+    and collapses to a global affine map—and ``"realnvp"`` (`NormalizingFlow`)
+    when ``k >= 2``.
+    """
+    if not isinstance(flow_type, str) or flow_type not in FLOW_TYPES:
+        raise ValueError(
+            f"flow_type={flow_type!r} is not recognized; choose one of {FLOW_TYPES}."
+        )
+    if int(k) < 1:
+        raise ValueError(f"k must be >= 1; got {k!r}.")
+    if flow_type == "auto":
+        return "spline1d" if int(k) == 1 else "realnvp"
+    return flow_type
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -311,12 +335,488 @@ class NormalizingFlow(nn.Module):
     def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.flow.inverse_and_log_det(z)
 
+
+def _eager_rational_quadratic_spline(
+    inputs: torch.Tensor,
+    unnormalized_widths: torch.Tensor,
+    unnormalized_heights: torch.Tensor,
+    unnormalized_derivatives: torch.Tensor,
+    *,
+    inverse: bool = False,
+    left: float = -3.5,
+    right: float = 3.5,
+    bottom: float = -3.5,
+    top: float = 3.5,
+    min_bin_width: float = 1e-3,
+    min_bin_height: float = 1e-3,
+    min_derivative: float = 1e-3,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Eager-mode Durkan et al. (2019) Rational-Quadratic Spline avoiding torch._dynamo recompilation."""
+    num_bins = unnormalized_widths.shape[-1]
+    widths = min_bin_width + (1.0 - min_bin_width * num_bins) * F.softmax(unnormalized_widths, dim=-1)
+    cumwidths = F.pad(torch.cumsum(widths, dim=-1), pad=(1, 0), mode="constant", value=0.0)
+    cumwidths = (right - left) * cumwidths + left
+    cumwidths[..., 0] = left
+    cumwidths[..., -1] = right
+    widths = cumwidths[..., 1:] - cumwidths[..., :-1]
+
+    derivatives = min_derivative + F.softplus(unnormalized_derivatives)
+
+    heights = min_bin_height + (1.0 - min_bin_height * num_bins) * F.softmax(unnormalized_heights, dim=-1)
+    cumheights = F.pad(torch.cumsum(heights, dim=-1), pad=(1, 0), mode="constant", value=0.0)
+    cumheights = (top - bottom) * cumheights + bottom
+    cumheights[..., 0] = bottom
+    cumheights[..., -1] = top
+    heights = cumheights[..., 1:] - cumheights[..., :-1]
+
+    bins_ref = cumheights if inverse else cumwidths
+    adjust = torch.zeros(bins_ref.shape[-1], device=bins_ref.device, dtype=bins_ref.dtype)
+    adjust[-1] = 1e-6
+    bin_idx = (torch.sum(inputs[..., None] >= (bins_ref + adjust), dim=-1) - 1).clamp(0, num_bins - 1)[..., None]
+
+    input_cumwidths = cumwidths.gather(-1, bin_idx)[..., 0]
+    input_bin_widths = widths.gather(-1, bin_idx)[..., 0]
+    input_cumheights = cumheights.gather(-1, bin_idx)[..., 0]
+    delta = heights / widths
+    input_delta = delta.gather(-1, bin_idx)[..., 0]
+    input_derivatives = derivatives.gather(-1, bin_idx)[..., 0]
+    input_derivatives_plus_one = derivatives[..., 1:].gather(-1, bin_idx)[..., 0]
+    input_heights = heights.gather(-1, bin_idx)[..., 0]
+
+    if inverse:
+        a = (inputs - input_cumheights) * (
+            input_derivatives + input_derivatives_plus_one - 2.0 * input_delta
+        ) + input_heights * (input_delta - input_derivatives)
+        b = input_heights * input_derivatives - (inputs - input_cumheights) * (
+            input_derivatives + input_derivatives_plus_one - 2.0 * input_delta
+        )
+        c = -input_delta * (inputs - input_cumheights)
+        discriminant = (b.pow(2) - 4.0 * a * c).clamp_min(0.0)
+        root = (2.0 * c) / (-b - torch.sqrt(discriminant))
+        outputs = root * input_bin_widths + input_cumwidths
+        t1mt = root * (1.0 - root)
+        denom = input_delta + (input_derivatives + input_derivatives_plus_one - 2.0 * input_delta) * t1mt
+        deriv_num = input_delta.pow(2) * (
+            input_derivatives_plus_one * root.pow(2)
+            + 2.0 * input_delta * t1mt
+            + input_derivatives * (1.0 - root).pow(2)
+        )
+        logabsdet = torch.log(deriv_num) - 2.0 * torch.log(denom)
+        return outputs, -logabsdet
+
+    theta = (inputs - input_cumwidths) / input_bin_widths
+    t1mt = theta * (1.0 - theta)
+    num = input_heights * (input_delta * theta.pow(2) + input_derivatives * t1mt)
+    denom = input_delta + (input_derivatives + input_derivatives_plus_one - 2.0 * input_delta) * t1mt
+    outputs = input_cumheights + num / denom
+    deriv_num = input_delta.pow(2) * (
+        input_derivatives_plus_one * theta.pow(2)
+        + 2.0 * input_delta * t1mt
+        + input_derivatives * (1.0 - theta).pow(2)
+    )
+    logabsdet = torch.log(deriv_num) - 2.0 * torch.log(denom)
+    return outputs, logabsdet
+
+
+class PositiveActNorm1d(nn.Module):
+    """Data-dependent per-coordinate standardization with strictly positive scale."""
+
+    def __init__(self, dim: int, log_scale_cap: float = 4.0):
+        super().__init__()
+        self.dim = int(dim)
+        self.log_scale_cap = float(log_scale_cap)
+        self.loc = nn.Parameter(torch.zeros(1, self.dim))
+        self.raw_log_scale = nn.Parameter(torch.zeros(1, self.dim))
+        self.register_buffer("initialized", torch.tensor(False, dtype=torch.bool))
+
+    @torch.no_grad()
+    def _maybe_init(self, x: torch.Tensor) -> None:
+        if bool(self.initialized.item()) or not self.training or x.shape[0] < 2:
+            return
+        mu = x.detach().mean(dim=0, keepdim=True)
+        sd = x.detach().std(dim=0, unbiased=False, keepdim=True).clamp_min(1e-3)
+        target_ls = (-torch.log(sd)).clamp(-self.log_scale_cap * 0.95, self.log_scale_cap * 0.95)
+        ratio = (target_ls / self.log_scale_cap).clamp(-0.999, 0.999)
+        self.loc.data.copy_(-mu)
+        self.raw_log_scale.data.copy_(torch.atanh(ratio))
+        self.initialized.fill_(True)
+
+    def _log_scale(self) -> torch.Tensor:
+        return self.log_scale_cap * torch.tanh(self.raw_log_scale)
+
+    def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        self._maybe_init(x)
+        ls = self._log_scale()
+        z = (x + self.loc) * torch.exp(ls)
+        ld = ls.sum(dim=1).expand(x.shape[0])
+        return z, ld
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward_and_log_det(x)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        ls = self._log_scale()
+        x = z * torch.exp(-ls) - self.loc
+        ld = -ls.sum(dim=1).expand(z.shape[0])
+        return x, ld
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        x, _ = self.inverse_and_log_det(z)
+        return x
+
+
+class ElementwiseRQSplineLayer(nn.Module):
+    """Coordinate-wise strictly monotone Rational-Quadratic Spline + positive affine layer."""
+
+    def __init__(
+        self,
+        dim: int,
+        num_bins: int = 8,
+        tail_bound: float = 3.5,
+        scale_bound: float = 1.5,
+        min_derivative: float = 1e-3,
+    ):
+        super().__init__()
+        self.dim = int(dim)
+        self.num_bins = int(num_bins)
+        self.tail_bound = float(tail_bound)
+        self.scale_bound = float(scale_bound)
+        self.min_derivative = float(min_derivative)
+
+        init_deriv = math.log(math.exp(1.0 - self.min_derivative) - 1.0)
+        self.register_buffer("_tail_deriv", torch.tensor(init_deriv, dtype=torch.float32))
+        self.unnorm_widths = nn.Parameter(torch.zeros(1, self.dim, self.num_bins))
+        self.unnorm_heights = nn.Parameter(torch.zeros(1, self.dim, self.num_bins))
+        self.unnorm_derivs = nn.Parameter(
+            torch.full((1, self.dim, self.num_bins - 1), init_deriv, dtype=torch.float32)
+        )
+        self.raw_log_scale = nn.Parameter(torch.zeros(1, self.dim))
+        self.shift = nn.Parameter(torch.zeros(1, self.dim))
+
+    def _spline_params(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        w = self.unnorm_widths.expand(batch_size, self.dim, self.num_bins)
+        h = self.unnorm_heights.expand(batch_size, self.dim, self.num_bins)
+        pad = self._tail_deriv.view(1, 1, 1).expand(batch_size, self.dim, 1)
+        d = torch.cat([pad, self.unnorm_derivs.expand(batch_size, self.dim, self.num_bins - 1), pad], dim=-1)
+        return w, h, d
+
+    def _apply_spline(self, x: torch.Tensor, inverse: bool) -> Tuple[torch.Tensor, torch.Tensor]:
+        tb = self.tail_bound
+        inside = (x >= -tb) & (x <= tb)
+        x_clamped = torch.clamp(x, min=-tb, max=tb)
+        w, h, d = self._spline_params(x.shape[0])
+        y_sp, ld_sp = _eager_rational_quadratic_spline(
+            inputs=x_clamped,
+            unnormalized_widths=w,
+            unnormalized_heights=h,
+            unnormalized_derivatives=d,
+            inverse=inverse,
+            left=-tb,
+            right=tb,
+            bottom=-tb,
+            top=tb,
+            min_bin_width=1e-3,
+            min_bin_height=1e-3,
+            min_derivative=self.min_derivative,
+        )
+        y = torch.where(inside, y_sp.to(x.dtype), x)
+        ld = torch.where(inside, ld_sp.to(x.dtype), torch.zeros_like(x))
+        return y, ld
+
+    def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        y, ld_sp = self._apply_spline(x, inverse=False)
+        log_s = self.scale_bound * torch.tanh(self.raw_log_scale)
+        z = y * torch.exp(log_s) + self.shift
+        total_ld = ld_sp.sum(dim=1) + log_s.sum(dim=1).expand(x.shape[0])
+        return z, total_ld
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward_and_log_det(x)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        log_s = self.scale_bound * torch.tanh(self.raw_log_scale)
+        y = (z - self.shift) * torch.exp(-log_s)
+        x, ld_sp = self._apply_spline(y, inverse=True)
+        total_ld = ld_sp.sum(dim=1) - log_s.sum(dim=1).expand(z.shape[0])
+        return x, total_ld
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        x, _ = self.inverse_and_log_det(z)
+        return x
+
+
+class ElementwiseRQSplineFlow(nn.Module):
+    """Stack of coordinate-wise monotone `ElementwiseRQSplineLayer` bijections without ActNorm.
+
+    Starts at the exact identity map (`z == x`, `log_det == 0` at initialization)
+    with a strictly diagonal positive Jacobian.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_layers: int = 2,
+        num_bins: int = 8,
+        tail_bound: float = 3.5,
+        scale_bound: float = 1.5,
+        force_fallback: bool = False,
+    ):
+        super().__init__()
+        self.dim = int(dim)
+        self.use_fallback = bool(force_fallback)
+        self.layers = nn.ModuleList([
+            ElementwiseRQSplineLayer(
+                self.dim,
+                num_bins=num_bins,
+                tail_bound=tail_bound,
+                scale_bound=scale_bound,
+            )
+            for _ in range(max(1, int(num_layers)))
+        ])
+
+    def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z = x
+        total_ld = torch.zeros(x.shape[0], device=x.device, dtype=x.dtype)
+        for layer in self.layers:
+            z, ld = layer.forward_and_log_det(z)
+            total_ld = total_ld + ld
+        return z, total_ld
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward_and_log_det(x)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = z
+        total_ld = torch.zeros(z.shape[0], device=z.device, dtype=z.dtype)
+        for layer in reversed(self.layers):
+            x, ld = layer.inverse_and_log_det(x)
+            total_ld = total_ld + ld
+        return x, total_ld
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        x, _ = self.inverse_and_log_det(z)
+        return x
+
+
+class ActNormElementwiseRQSplineFlow(nn.Module):
+    """Coordinate-wise strictly monotone normalizing flow (`PositiveActNorm1d` + RQS layers).
+
+    Used when ``flow_type="spline1d"`` (and automatically via ``flow_type="auto"``
+    at ``k == 1`` in `FlowSiMRVModel`). Guarantees ``Spearman(x_j, z_j) == +1``
+    and a strictly diagonal Jacobian (zero PCF defect) at every dimension ``dim >= 1``.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_layers: int = 2,
+        num_bins: int = 8,
+        tail_bound: float = 3.5,
+        scale_bound: float = 1.5,
+        log_scale_cap: float = 2.5,
+        force_fallback: bool = False,
+    ):
+        super().__init__()
+        self.dim = int(dim)
+        self.use_fallback = bool(force_fallback)
+        self.actnorm = PositiveActNorm1d(self.dim, log_scale_cap=log_scale_cap)
+        self.layers = nn.ModuleList([
+            ElementwiseRQSplineLayer(
+                self.dim,
+                num_bins=num_bins,
+                tail_bound=tail_bound,
+                scale_bound=scale_bound,
+            )
+            for _ in range(max(1, int(num_layers)))
+        ])
+
+    def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z, total_ld = self.actnorm.forward_and_log_det(x)
+        for layer in self.layers:
+            z, ld = layer.forward_and_log_det(z)
+            total_ld = total_ld + ld
+        return z, total_ld
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward_and_log_det(x)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = z
+        total_ld = torch.zeros(z.shape[0], device=z.device, dtype=z.dtype)
+        for layer in reversed(self.layers):
+            x, ld = layer.inverse_and_log_det(x)
+            total_ld = total_ld + ld
+        x, ld0 = self.actnorm.inverse_and_log_det(x)
+        return x, total_ld + ld0
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        x, _ = self.inverse_and_log_det(z)
+        return x
+
+
+def exact_pcf_penalty_bpd(flow_module: nn.Module, x_detached: torch.Tensor) -> torch.Tensor:
+    """Exact Hadamard Principal Component Flow penalty in bits/dim on encoder ``x -> z``:
+
+        ``PCF(f; x) = [ sum_{j=1}^d log || dz_j / dx ||_2 - log |det dz/dx| ] / (d * ln 2) >= 0``.
+
+    Evaluated via ``d`` vector-Jacobian products on ``flow_module.forward_and_log_det``.
+    Identically ``0`` when ``d <= 1`` or ``flow_module`` has a strictly diagonal Jacobian
+    (`ElementwiseRQSplineFlow` or `ActNormElementwiseRQSplineFlow`).
+    """
+    d = int(x_detached.shape[1])
+    if (
+        d <= 1
+        or x_detached.shape[0] < 2
+        or isinstance(flow_module, (ElementwiseRQSplineFlow, ActNormElementwiseRQSplineFlow))
+    ):
+        return torch.tensor(0.0, device=x_detached.device, dtype=torch.float32)
+    xr = x_detached.detach().float().requires_grad_(True)
+    z, log_det = flow_module.forward_and_log_det(xr)
+    row_log_norms = []
+    for j in range(d):
+        g_j = torch.autograd.grad(
+            z[:, j].sum(), xr, create_graph=True, retain_graph=True
+        )[0]
+        row_log_norms.append(0.5 * torch.log(g_j.pow(2).sum(dim=1).clamp_min(1e-24)))
+    sum_log_norms = torch.stack(row_log_norms, dim=1).sum(dim=1)
+    return (sum_log_norms - log_det).mean() / (d * math.log(2.0))
+
+
+class PostRotatedFlowWrapper(nn.Module):
+    """Exact ``O(k)`` gauge rotation ``R`` on the top-``k`` shared coordinates of ``f: R^p -> R^p``.
+
+    Forward: ``z = f(x); z[:, :k] <- z[:, :k] @ R`` with unchanged ``log |det J|`` (``|det R| == 1``).
+    Inverse: ``z[:, :k] <- z[:, :k] @ R^T; return f^{-1}(z)``.
+    """
+
+    def __init__(self, base_flow: nn.Module, r_orth: torch.Tensor):
+        super().__init__()
+        self.dim = int(base_flow.dim)
+        self.k = int(r_orth.shape[0])
+        self.base_flow = base_flow
+        self.register_buffer("r_orth", r_orth.float().clone())
+
+    @property
+    def use_fallback(self) -> bool:
+        return bool(getattr(self.base_flow, "use_fallback", False))
+
+    def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z, ld = self.base_flow.forward_and_log_det(x)
+        if self.k <= z.shape[1]:
+            z = torch.cat([z[:, :self.k] @ self.r_orth, z[:, self.k:]], dim=1)
+        return z, ld
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward_and_log_det(x)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.k <= z.shape[1]:
+            z = torch.cat([z[:, :self.k] @ self.r_orth.t(), z[:, self.k:]], dim=1)
+        return self.base_flow.inverse_and_log_det(z)
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        if self.k <= z.shape[1]:
+            z = torch.cat([z[:, :self.k] @ self.r_orth.t(), z[:, self.k:]], dim=1)
+        return self.base_flow.inverse(z)
+
+
+class GaussianPCABase(nn.Module):
+    """Factor-analysis / Probabilistic PCA base distribution ``N(loc, W^T W + sigma^2 I)``.
+
+    Evaluates exact log-density via Sylvester's determinant identity on
+    ``M = I_k + sigma^{-2} W W^T >= I_k`` and the non-negative sum-of-squares
+    quadratic form ``sigma^{-2} ||z_c - eps_hat W||^2 + ||eps_hat||^2``, avoiding
+    ``D x D`` Cholesky singularities and catastrophic cancellation for all
+    ``D >= 1`` and ``k >= 1``.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        latent_dim: int,
+        sigma: float = 0.2,
+        log_sigma_bounds: Tuple[float, float] = (-6.0, 4.0),
+    ):
+        super().__init__()
+        self.dim = int(dim)
+        self.latent_dim = int(latent_dim)
+        self.log_sigma_min = float(log_sigma_bounds[0])
+        self.log_sigma_max = float(log_sigma_bounds[1])
+        self.loc = nn.Parameter(torch.zeros(1, self.dim))
+        self.W = nn.Parameter(
+            torch.randn(self.latent_dim, self.dim) * (1.0 / math.sqrt(max(1, self.dim)))
+        )
+        self.log_sigma = nn.Parameter(
+            torch.tensor(math.log(max(float(sigma), 1e-4)), dtype=torch.float32)
+        )
+
+    def _clamped_sigma2(self) -> torch.Tensor:
+        ls = torch.clamp(self.log_sigma, min=self.log_sigma_min, max=self.log_sigma_max)
+        return torch.exp(2.0 * ls)
+
+    def posterior_mean(self, z: torch.Tensor) -> torch.Tensor:
+        zc = z - self.loc
+        sigma2 = self._clamped_sigma2()
+        eye_k = torch.eye(self.latent_dim, device=z.device, dtype=z.dtype)
+        a_mat = (self.W @ self.W.t()) + sigma2 * eye_k
+        proj = zc @ self.W.t()
+        return torch.linalg.solve(a_mat, proj.t()).t()
+
+    def decode_mean(self, eps: torch.Tensor) -> torch.Tensor:
+        return eps @ self.W + self.loc
+
+    def log_prob(self, z: torch.Tensor) -> torch.Tensor:
+        zc = z - self.loc
+        sigma2 = self._clamped_sigma2()
+        inv_s2 = 1.0 / sigma2
+        eye_k = torch.eye(self.latent_dim, device=z.device, dtype=z.dtype)
+        m_mat = eye_k + inv_s2 * (self.W @ self.W.t())
+        chol_m = torch.linalg.cholesky(m_mat)
+        log_det_cov = self.dim * torch.log(sigma2) + 2.0 * torch.sum(
+            torch.log(torch.diagonal(chol_m))
+        )
+        eps_hat = self.posterior_mean(z)
+        resid = zc - (eps_hat @ self.W)
+        quad = inv_s2 * torch.sum(resid * resid, dim=1) + torch.sum(eps_hat * eps_hat, dim=1)
+        return -0.5 * (self.dim * math.log(2.0 * math.pi) + log_det_cov + quad)
+
+
+class GaussianPCAEncoderWrapper(nn.Module):
+    """Encoder wrapper for `GaussianPCABase`: extracts posterior mean ``E[eps | f(x)]``."""
+
+    def __init__(self, flow_model: nn.Module, gpca: GaussianPCABase, latent_dim: int):
+        super().__init__()
+        self.flow = flow_model
+        self.gpca = gpca
+        self.latent_dim = int(latent_dim)
+        self.last_z = None
+        self.last_log_det = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z, ld = self.flow(x)
+        self.last_z = z
+        self.last_log_det = ld
+        return self.gpca.posterior_mean(z)
+
+
+class GaussianPCADecoderWrapper(nn.Module):
+    """Decoder wrapper for `GaussianPCABase`: maps ``eps -> f^{-1}(eps @ W + loc)``."""
+
+    def __init__(self, flow_model: nn.Module, gpca: GaussianPCABase):
+        super().__init__()
+        self.flow = flow_model
+        self.gpca = gpca
+
+    def forward(self, eps: torch.Tensor) -> torch.Tensor:
+        return self.flow.inverse(self.gpca.decode_mean(eps))
+
+
 class FlowEncoderWrapper(nn.Module):
     """
     Wrapper to align a Normalizing Flow to a standard encoder interface.
     Extracts the first K components as the shared latent space.
     """
-    def __init__(self, flow_model: NormalizingFlow, latent_dim: int):
+    def __init__(self, flow_model: nn.Module, latent_dim: int):
         super().__init__()
         self.flow = flow_model
         self.latent_dim = latent_dim
@@ -337,7 +837,7 @@ class FlowDecoderWrapper(nn.Module):
     Wrapper to align a Normalizing Flow to a standard decoder interface.
     Reconstructs the input from the shared latent space (padding private space with zeros).
     """
-    def __init__(self, flow_model: NormalizingFlow, latent_dim: int):
+    def __init__(self, flow_model: nn.Module, latent_dim: int):
         super().__init__()
         self.flow = flow_model
         self.latent_dim = latent_dim
@@ -359,8 +859,12 @@ class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 0.5, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT, base_distribution: str = "diag"):
         super().__init__()
+        if not isinstance(base_distribution, str) or base_distribution not in FLOW_BASE_DISTRIBUTIONS:
+            raise ValueError(
+                f"base_distribution={base_distribution!r} is not recognized; choose one of {FLOW_BASE_DISTRIBUTIONS}."
+            )
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
                                     prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start,
                                     sign_alignment=sign_alignment)
@@ -368,10 +872,23 @@ class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
         self.latent_dim = latent_dim
         self.is_flow = True
         self.force_fallback = force_fallback
+        self.base_distribution = base_distribution
         
         self.flows = nn.ModuleList([NormalizingFlow(dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) for dim in input_dims])
-        self.encoders = nn.ModuleList([FlowEncoderWrapper(flow, latent_dim) for flow in self.flows])
-        self.decoders = nn.ModuleList([FlowDecoderWrapper(flow, latent_dim) for flow in self.flows])
+        if base_distribution == "gaussian_pca":
+            self.gpca_bases = nn.ModuleList([GaussianPCABase(dim, latent_dim, sigma=0.2) for dim in input_dims])
+            self.encoders = nn.ModuleList([
+                GaussianPCAEncoderWrapper(flow, gpca, latent_dim)
+                for flow, gpca in zip(self.flows, self.gpca_bases)
+            ])
+            self.decoders = nn.ModuleList([
+                GaussianPCADecoderWrapper(flow, gpca)
+                for flow, gpca in zip(self.flows, self.gpca_bases)
+            ])
+        else:
+            self.gpca_bases = None
+            self.encoders = nn.ModuleList([FlowEncoderWrapper(flow, latent_dim) for flow in self.flows])
+            self.decoders = nn.ModuleList([FlowDecoderWrapper(flow, latent_dim) for flow in self.flows])
         
         
     def forward(self, x_list: List[torch.Tensor],
@@ -441,7 +958,8 @@ class FlowConditionalInference:
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
                      tol: float = DEFAULT_TOL, patience: int = 10,
                      collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-                     system_prior=None):
+                     system_prior=None,
+                     pcf_alpha: float = 0.0):
     loss_history, recon_history, sim_history = [], [], []
     model._n_fit = getattr(dataloader, "n", None)       # rows the bases are fitted on (MAI dof)
     nonfinite_grad_steps = 0
@@ -483,6 +1001,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     _best_loss, _best_state, _best_epoch = float("inf"), None, None
     _warm = int(warmup_epochs or 0)
     _all_params = list(model.parameters())
+    gpca_bases = getattr(model, "gpca_bases", None)
     for epoch in range(epochs):
         model.train()
         step_loss, step_recon, step_sim = [], [], []
@@ -492,6 +1011,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         _update_first_layer_schedule(model, epoch, epochs, stabilization_start_epoch, stabilization_ramp_epochs)
         
         current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
+        current_pcf_alpha = 0.0 if epoch < warmup_epochs else float(pcf_alpha)
         penalty_weights["sim"] = current_sim_weight
         
         pre_staged = getattr(dataloader, "_device", None) == device
@@ -510,12 +1030,15 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                 )
                 
                 recon_loss = torch.tensor(0.0, device=device)
-                for enc in model.encoders:
+                for idx_m, enc in enumerate(model.encoders):
                     z = enc.last_z
                     log_det = enc.last_log_det
                     if z is None or z.shape[0] == 0:
                         continue
-                    log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
+                    if gpca_bases is not None:
+                        log_prior = gpca_bases[idx_m].log_prob(z)
+                    else:
+                        log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
                     nll = -torch.mean(log_prior + log_det)
                     recon_loss = recon_loss + nll
 
@@ -535,6 +1058,12 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                     mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
 
                 total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
+                if current_pcf_alpha > 0.0 and getattr(model, "latent_dim", 0) >= 2:
+                    obs_proj = getattr(model, "_last_obs_projected_zs", None)
+                    if obs_proj is not None:
+                        for fl_m, z_obs_det in zip(model.flows, obs_proj):
+                            if z_obs_det is not None and z_obs_det.shape[0] >= 2:
+                                total_loss = total_loss + current_pcf_alpha * exact_pcf_penalty_bpd(fl_m, z_obs_det)
                 if system_prior is not None and first_layer_encs:
                     ste_bases = [enc.v_raw + (enc.v - enc.v_raw).detach() for enc in first_layer_encs]
                     total_loss = total_loss + system_total_energy(ste_bases, system_prior)
@@ -547,6 +1076,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             finally:
                 for enc in first_layer_encs:
                     enc._step_v_cache = None
+                if hasattr(model, "_last_obs_projected_zs"):
+                    model._last_obs_projected_zs = None
                 
             if torch.isnan(total_loss): 
                 continue
@@ -613,6 +1144,67 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
 
     return loss_history, recon_history, sim_history, _conv_report
 
+def _apply_post_flow_varimax(
+    model: FlowSiMRModel,
+    torch_mats: List[torch.Tensor],
+    eval_mats: List[torch.Tensor],
+    u_final: Union[torch.Tensor, List[torch.Tensor]],
+    u_aggregate: torch.Tensor,
+    k: int,
+    obs_masks: Optional[List[torch.Tensor]],
+    dev_obs_masks: Optional[List[torch.Tensor]],
+    device: torch.device,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], Union[torch.Tensor, List[torch.Tensor]], torch.Tensor, torch.Tensor]:
+    """Apply an exact likelihood- and reconstruction-preserving shared ``O(k)`` Kaiser Varimax
+    gauge rotation to a fitted `FlowSiMRModel` (`base_distribution="diag"` or `"gaussian_pca"`)."""
+    from .loadings import structure_coefficients, varimax_rotation
+
+    s_list = structure_coefficients(
+        [m.detach().cpu() for m in torch_mats],
+        u_aggregate.detach().cpu(),
+        obs_masks=obs_masks,
+    )
+    r_orth64_cpu = varimax_rotation(s_list).double()
+    r_orth64 = r_orth64_cpu.to(device=device)
+    r_orth32 = r_orth64.float()
+
+    if getattr(model, "base_distribution", "diag") == "gaussian_pca" and model.gpca_bases is not None:
+        for gp in model.gpca_bases:
+            gp.W.data.copy_((r_orth64.t() @ gp.W.data.double()).to(dtype=gp.W.dtype))
+    else:
+        model.flows = nn.ModuleList([PostRotatedFlowWrapper(fl, r_orth32) for fl in model.flows])
+        model.encoders = nn.ModuleList([FlowEncoderWrapper(fl, k) for fl in model.flows])
+        model.decoders = nn.ModuleList([FlowDecoderWrapper(fl, k) for fl in model.flows])
+
+    if dev_obs_masks is None:
+        rot_latents = [enc(xm) for enc, xm in zip(model.encoders, eval_mats)]
+    else:
+        rot_latents = []
+        for enc, xm, om in zip(model.encoders, eval_mats, dev_obs_masks):
+            if int(om.sum().item()) == 0:
+                enc.last_z = None
+                enc.last_log_det = None
+                rot_latents.append(torch.zeros(xm.shape[0], k, device=xm.device, dtype=xm.dtype))
+            else:
+                z_obs = enc(xm[om])
+                z_full = torch.zeros(xm.shape[0], k, device=xm.device, dtype=z_obs.dtype)
+                z_full[om] = z_obs
+                rot_latents.append(z_full)
+
+    u_agg_rot = (u_aggregate.double() @ r_orth64).to(dtype=u_aggregate.dtype)
+    if isinstance(u_final, list):
+        u_final_rot: Union[torch.Tensor, List[torch.Tensor]] = [
+            (ui.double() @ r_orth64).to(dtype=ui.dtype) for ui in u_final
+        ]
+    else:
+        u_final_rot = u_agg_rot
+    recons_rot = [
+        dec(u_final_rot[i] if isinstance(u_final_rot, list) else u_final_rot)
+        for i, dec in enumerate(model.decoders)
+    ]
+    return rot_latents, recons_rot, u_final_rot, u_agg_rot, r_orth32.detach().cpu()
+
+
 def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations: int,
               batch_size: int, learning_rate: float, weight_decay: float, sim_weight: float,
               warmup_epochs: Optional[int], energy_type: str, optimizer_type: str,
@@ -625,7 +1217,9 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
               missing_rows: str = "impute",
               system_matrices=None,
               system_lambda: Optional[float] = None,
-              system_penalty: str = "l2") -> Dict[str, Any]:
+              system_penalty: str = "l2",
+              pcf_alpha: float = 0.0,
+              post_flow_varimax: bool = False) -> Dict[str, Any]:
     """Shared body of `flow_simr` and `flow_simr_v`.
 
     ``init_kwargs`` is given only for the models with a linear first layer
@@ -651,6 +1245,11 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             data_matrices, k, missing_rows=missing_rows
         )
         input_dims = [m.shape[1] for m in torch_mats]
+        if post_flow_varimax and getattr(build_model, "_base_distribution", "diag") == "diag" and int(k) > min(input_dims):
+            raise ValueError(
+                f"varimax=True with base_distribution='diag' requires k <= min(view widths) "
+                f"({min(input_dims)}), got k={k}; use base_distribution='gaussian_pca' or k <= {min(input_dims)}."
+            )
         from .system_prior import prepare_system_prior
         sys_prior = prepare_system_prior(
             system_matrices, system_lambda, system_penalty,
@@ -673,10 +1272,12 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             dynamic_weights_start=dynamic_weights_start,
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience,
-            collapse_threshold=collapse_threshold, system_prior=sys_prior)
+            collapse_threshold=collapse_threshold, system_prior=sys_prior,
+            pcf_alpha=pcf_alpha)
         from .utils import warn_if_unconverged
         warn_if_unconverged(conv_report, model_type)
         model.eval()
+        varimax_rot_cpu: Optional[torch.Tensor] = None
         with torch.no_grad():
             v_mats, retraction_diagnostics = None, None
             if has_linear:
@@ -691,6 +1292,11 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             )
             u_aggregate = (_aggregate_shared_consensus(model, final_latents, obs_masks=dev_obs_masks)
                            if isinstance(u_final, list) else u_final)
+            if post_flow_varimax:
+                final_latents, recons, u_final, u_aggregate, varimax_rot_cpu = _apply_post_flow_varimax(
+                    model, torch_mats, eval_mats, u_final, u_aggregate, int(k),
+                    obs_masks=obs_masks, dev_obs_masks=dev_obs_masks, device=device,
+                )
             consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate,
                                                    obs_masks=obs_masks)
         cond_inference = FlowConditionalInference(len(input_dims), k)
@@ -752,6 +1358,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
         result["errors"] = _recon_errors(err_mats, recons)
     else:
         result["errors"] = _recon_errors(torch_mats, recons)
+    if post_flow_varimax:
+        result["varimax_rotation"] = varimax_rot_cpu
     return result
 
 
@@ -775,7 +1383,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               device: Optional[str] = None,
               verbose: bool = False,
               beta: float = 0.05,
-              scale_bound: float = 2.0,
+              scale_bound: float = 0.5,
               gamma: float = 2.0,
               dynamic_weights: bool = False,
               mai_metric: str = "procrustes_r2",
@@ -786,7 +1394,9 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               tol: float = DEFAULT_TOL,
               patience: int = 10,
               collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-              missing_rows: str = "impute") -> Dict[str, Any]:
+              missing_rows: str = "impute",
+              base_distribution: str = "diag",
+              varimax: bool = False) -> Dict[str, Any]:
     """
     Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
 
@@ -796,28 +1406,56 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     the method is not part of the `pysimlr.api` basis contract. Use
     `flow_simr_v` for the flow model with an interpretable linear entry.
 
-    Parameters are those of `flow_simr_v` without the first-layer settings.
-    ``iterations`` is the budget in epochs; ``random_state`` seeds the whole
-    fit on a private RNG stream (see `lend_simr`). ``sign_alignment``
-    (``"spectral"`` default, view-order free; ``"greedy"`` legacy) is as in
-    `simlr`.
+    Parameters are those of `flow_simr_v` without the first-layer settings, plus:
+
+    * ``scale_bound`` (default ``0.5``): bounds per-layer affine coupling
+      log-scales ``|s| <= scale_bound`` to prevent out-of-sample multiplicative
+      ``exp(s)`` blow-up on ambient ``p_m -> p_m`` bijections.
+    * ``base_distribution`` (``"diag"`` default or ``"gaussian_pca"``): standard
+      ``N(0, I_{p_m})`` base with zero-padded private inverse vs. Probabilistic
+      PCA ``N(loc, W^T W + sigma^2 I_{p_m})`` (`GaussianPCABase`).
+    * ``varimax`` (``False`` default): when ``True``, applies an exact
+      likelihood- and reconstruction-preserving shared ``O(k)`` Kaiser Varimax
+      gauge rotation (`loadings.varimax_rotation` on stacked training structure
+      coefficients) to the shared ``k`` latent coordinates, conjugating
+      ``model``, ``u``, ``latents``, frozen consensus maps, and conditional
+      inference.
     """
-    return _fit_flow(
-        "flow_simr",
-        lambda dims: FlowSiMRModel(
+    if not isinstance(base_distribution, str) or base_distribution not in FLOW_BASE_DISTRIBUTIONS:
+        raise ValueError(
+            f"base_distribution={base_distribution!r} is not recognized; choose one of {FLOW_BASE_DISTRIBUTIONS}."
+        )
+    if not isinstance(varimax, bool):
+        raise ValueError(f"varimax on flow_simr must be a bool (True or False); got {varimax!r}.")
+
+    def _builder(dims: List[int]) -> FlowSiMRModel:
+        return FlowSiMRModel(
             dims, k, num_layers=num_layers, hidden_dim=hidden_dim,
             mixing_algorithm=mixing_algorithm, scale_bound=scale_bound,
             topology=topology, path_graph=path_graph, prune_threshold=prune_threshold,
             dynamic_weights=dynamic_weights, mai_metric=mai_metric,
             dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai,
-            force_fallback=force_fallback, sign_alignment=sign_alignment),
+            force_fallback=force_fallback, sign_alignment=sign_alignment,
+            base_distribution=base_distribution,
+        )
+
+    _builder._base_distribution = base_distribution  # type: ignore[attr-defined]
+    res = _fit_flow(
+        "flow_simr",
+        _builder,
         data_matrices, k, iterations=iterations, batch_size=batch_size,
         learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
         warmup_epochs=warmup_epochs, energy_type=energy_type, optimizer_type=optimizer_type,
         device=device, verbose=verbose, beta=beta, gamma=gamma,
         dynamic_weights_start=dynamic_weights_start, stabilization_start_epoch=None,
         stabilization_ramp_epochs=None, random_state=random_state, tol=tol, patience=patience,
-        collapse_threshold=collapse_threshold, missing_rows=missing_rows)
+        collapse_threshold=collapse_threshold, missing_rows=missing_rows,
+        post_flow_varimax=varimax)
+    res["base_distribution"] = base_distribution
+    res["varimax"] = varimax
+    if not varimax:
+        res["varimax_rotation"] = None
+    return res
 
 
 class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
@@ -833,8 +1471,10 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
-                 force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
+                 force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
+                 flow_type: str = "auto"):
         super().__init__()
+        resolved_flow_type = resolve_flow_type(flow_type, latent_dim)
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
                                     prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start,
                                     sign_alignment=sign_alignment)
@@ -846,15 +1486,34 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
         self.first_layer_mode = first_layer_mode
         self.nsa_iterations = nsa_iterations
         self.force_fallback = force_fallback
+        self.flow_type_requested = flow_type
+        self.flow_type = resolved_flow_type
+        self._last_obs_projected_zs: Optional[List[Optional[torch.Tensor]]] = None
         
         self.linear_encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness,
                                                 use_nsa, first_layer_mode, nsa_iterations)
         
-        # flows now operate on the low-dimensional projected space of size latent_dim (K)
-        self.flows = nn.ModuleList([
-            NormalizingFlow(latent_dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) 
-            for _ in range(len(input_dims))
-        ])
+        # flows operate on the low-dimensional projected space of size latent_dim (K).
+        # Each alternating RealNVP coupling updates half of the coordinates, so
+        # `max(1, num_layers // 2)` full-coordinate spline layers matches the
+        # per-coordinate composition depth (`num_layers=4 -> 2` spline layers).
+        if resolved_flow_type == "spline1d":
+            spline_layers = max(1, int(num_layers) // 2)
+            spline_scale_bound = min(float(scale_bound), 1.0)
+            self.flows = nn.ModuleList([
+                ActNormElementwiseRQSplineFlow(
+                    latent_dim,
+                    num_layers=spline_layers,
+                    scale_bound=spline_scale_bound,
+                    force_fallback=force_fallback,
+                )
+                for _ in range(len(input_dims))
+            ])
+        else:
+            self.flows = nn.ModuleList([
+                NormalizingFlow(latent_dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) 
+                for _ in range(len(input_dims))
+            ])
         self.encoders = nn.ModuleList([
             FlowEncoderWrapper(flow, latent_dim) 
             for flow in self.flows
@@ -908,29 +1567,40 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
                 # that the Gaussian prior + log|det J_flow| regularizes the flow
                 # bijection without driving unit-column V_m (which has no log|det|
                 # term) into low-variance noise directions.
+                obs_det_list: List[Optional[torch.Tensor]] = []
                 for enc, z in zip(self.encoders, projected_zs):
-                    z_det, ld_det = enc.flow(z.detach())
+                    zd = z.detach()
+                    z_det, ld_det = enc.flow(zd)
                     enc.last_z = z_det
                     enc.last_log_det = ld_det
+                    obs_det_list.append(zd)
+                self._last_obs_projected_zs = obs_det_list
+            else:
+                self._last_obs_projected_zs = None
             # 3. Consensus mixing
             u_shared = self._training_consensus(latents, self.latent_dim)
         else:
             latents = []
+            obs_det_masked: List[Optional[torch.Tensor]] = []
             for enc, z, om in zip(self.encoders, projected_zs, obs_masks):
                 n_obs = int(om.sum().item())
                 if n_obs == 0 or (self.training and n_obs < 2):
                     enc.last_z = None
                     enc.last_log_det = None
                     latents.append(torch.zeros(z.shape[0], self.latent_dim, device=z.device, dtype=z.dtype))
+                    obs_det_masked.append(None)
                 else:
                     z_obs = enc(z[om])
                     z_full = torch.zeros(z.shape[0], self.latent_dim, device=z.device, dtype=z_obs.dtype)
                     z_full[om] = z_obs
                     latents.append(z_full)
                     if self.training:
-                        z_det, ld_det = enc.flow(z[om].detach())
+                        zd_obs = z[om].detach()
+                        z_det, ld_det = enc.flow(zd_obs)
                         enc.last_z = z_det
                         enc.last_log_det = ld_det
+                        obs_det_masked.append(zd_obs)
+            self._last_obs_projected_zs = obs_det_masked if self.training else None
             # 3. Consensus mixing
             u_shared = self._training_consensus(latents, self.latent_dim, obs_masks=obs_masks)
             
@@ -996,10 +1666,13 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 missing_rows: str = "impute",
                 system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
                 system_lambda: Optional[float] = None,
-                system_penalty: str = "l2") -> Dict[str, Any]:
+                system_penalty: str = "l2",
+                flow_type: str = "auto",
+                pcf_alpha: float = 0.0) -> Dict[str, Any]:
     """
     Flow-SiMR-V: a linear, NSA-Flow-projected first layer ``V_m`` per view
-    followed by a RealNVP flow.
+    followed by a normalizing flow (monotone rational-quadratic spline at
+    ``k == 1``, RealNVP at ``k >= 2`` under ``flow_type="auto"``).
 
     Parameters
     ----------
@@ -1043,6 +1716,18 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     system_matrices, system_lambda, system_penalty :
         Optional cross-view coupling on system-level first-layer loadings
         ``P_i V_i`` (`pysimlr.system_prior`), as in `simlr`.
+    flow_type : {"auto", "realnvp", "spline1d"}, default="auto"
+        Per-view normalizing-flow architecture on ``X_m V_m``. ``"auto"``
+        resolves to ``"spline1d"`` (`ActNormElementwiseRQSplineFlow`) when
+        ``k == 1``—where affine-coupling RealNVP degenerates to a global affine
+        map—and ``"realnvp"`` (`NormalizingFlow`) when ``k >= 2``. Pass
+        ``"spline1d"`` at ``k >= 2`` for strictly coordinate-wise monotone
+        warping without cross-channel coupling.
+    pcf_alpha : float, default=0.0
+        Non-negative weight on the exact Hadamard Principal Component Flow
+        (`exact_pcf_penalty_bpd`, Cunningham et al., ICML 2022) encoder
+        Jacobian row-orthogonality penalty in bits/dim, active post-warmup for
+        ``k >= 2`` on ``flow_type="realnvp"``.
 
     The remaining parameters are the flow architecture (`num_layers`,
     `hidden_dim`, `scale_bound`, `force_fallback`), the loss weights (`beta`
@@ -1053,7 +1738,17 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     latent-only similarity energies; ``"align"`` is the counterpart of linear
     `simlr`'s ``"recon_r2"`` (`pysimlr.matched_energy`).
     """
-    return _fit_flow(
+    resolved_ft = resolve_flow_type(flow_type, k)
+    if (
+        isinstance(pcf_alpha, bool)
+        or not isinstance(pcf_alpha, (int, float, np.floating))
+        or not math.isfinite(float(pcf_alpha))
+        or float(pcf_alpha) < 0.0
+    ):
+        raise ValueError(f"pcf_alpha must be a finite float >= 0.0; got {pcf_alpha!r}.")
+    pcf_alpha_f = float(pcf_alpha)
+
+    res = _fit_flow(
         "flow_simr_v",
         lambda dims: FlowSiMRVModel(
             dims, k, num_layers=num_layers, hidden_dim=hidden_dim,
@@ -1064,7 +1759,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start,
             use_rank_mai=use_rank_mai, first_layer_mode=first_layer_mode,
             nsa_iterations=nsa_iterations,
-            force_fallback=force_fallback, sign_alignment=sign_alignment),
+            force_fallback=force_fallback, sign_alignment=sign_alignment,
+            flow_type=resolved_ft),
         data_matrices, k, iterations=iterations, batch_size=batch_size,
         learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
         warmup_epochs=warmup_epochs, energy_type=energy_type, optimizer_type=optimizer_type,
@@ -1078,4 +1774,9 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                          perturbation_scale=perturbation_scale, varimax=varimax),
         collapse_threshold=collapse_threshold, missing_rows=missing_rows,
         system_matrices=system_matrices, system_lambda=system_lambda,
-        system_penalty=system_penalty)
+        system_penalty=system_penalty,
+        pcf_alpha=pcf_alpha_f)
+    res["flow_type"] = resolved_ft
+    res["flow_type_requested"] = flow_type
+    res["pcf_alpha"] = pcf_alpha_f
+    return res
