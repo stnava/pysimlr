@@ -29,6 +29,7 @@ Both remain available directly.
 - **`flow_type="auto" | "realnvp" | "spline1d"` on `flow_v` (`flow_simr_v`):** `"auto"` (default) resolves via `resolve_flow_type(flow_type, k)` to `"spline1d"` (`ActNormElementwiseRQSplineFlow`: `PositiveActNorm1d` + monotone Durkan et al. 2019 rational-quadratic spline layers) when `k == 1`—fixing the degeneracy where `NormalizingFlow(dim=1)` has an empty conditioner split and reduces to a strictly affine bijection—and to `"realnvp"` (`NormalizingFlow`) when `k >= 2` (keeping all `k >= 2` default fits bit-identical). Recorded in `result["flow_type"]` (resolved) and `result["flow_type_requested"]`.
 - **`pcf_alpha: float = 0.0` on `flow_v` (`flow_simr_v`):** opt-in post-warmup weight on the exact Hadamard Principal Component Flow (`exact_pcf_penalty_bpd`, Cunningham et al., ICML 2022) encoder Jacobian row-orthogonality penalty in bits/dim on detached first-layer projections (`k >= 2`, `flow_type="realnvp"`, observed rows under `missing_rows="mask"`). Recorded in `result["pcf_alpha"]`.
 - **`flow_simr` (`scale_bound=0.5`, `base_distribution="diag" | "gaussian_pca"`, `varimax: bool = False`):** records `result["base_distribution"]`, `result["varimax"]`, and `result["varimax_rotation"]` (`(k, k)` orthogonal tensor when `varimax=True`, else `None`).
+- **`pysimlr.predict_conditional_view(result, observed_view, *, observed_idx, target_idx, return_input_units=False, device=None) -> dict`:** cross-view Gaussian Schur-complement imputation for `flow_v` / `flow_simr_v` / `flow_simr`. Replays `result["provenance_list"][observed_idx]`, encodes through both `linear_encoders` (when present) and `encoders` into the post-flow shared latent space, applies `result["cond_inference"].predict_conditional`, decodes `target_idx`, and optionally maps back to raw input units via `utils.invert_preprocessing`. Returns `observed_latent`, `target_latent`, `target_standardized`, and `target_reconstruction`.
 
 ## Calling
 
@@ -426,6 +427,34 @@ score blocks (`None` or absent for a missing block), standardized as the model w
 | `predicted_from` | `Dict[str, List[str]]` | Dictionary mapping each predicted node name to the list of available neighbor nodes used to predict it. |
 | `outcome_pred` | `Optional[np.ndarray]` | Predicted continuous outcome array $(n, r)$ if `outcome=True` and model includes an outcome node, else `None`. |
 | `r2_per_node` | `Optional[Dict[str, float]]` | Out-of-sample reconstruction $R^2$ ($1 - \text{SSE} / \text{SST}$) against true scores for each predicted view (requires `views_true`), else `None`. |
+
+### `mediation` result contract (`pysimlr.mediation(pm, a, m, b)`)
+
+`pysimlr.mediation(pm, a, m, b)` evaluates linear score-block mediation $a \to m \to b$ on a
+`path_model` or `path_model_from_scores` result (reusing `pm["scores"]` and `pm["nuisance"]` with
+zero measurement-model refits). After rank-revealing QR residualization on nuisance $N$ and, under
+`conditioning="parents"`, any other graph neighbors of $m$ or $b$ besides $\{a, m, b, \text{"consensus"}\}$,
+least-squares structural slopes satisfy $B_{\text{total}} = B_{\text{direct}} + B_{am} B_{mb}$.
+`plot_path_model(pm, ..., mediation=med)` annotates one or more returned mediation pathways directly
+on the SEM diagram.
+
+| key | type | content |
+|---|---|---|
+| `a`, `m`, `b` | `str` | Resolved source, mediator, and target node names (`"consensus"` rejected). |
+| `conditioning_nodes` | `List[str]` | Additional graph nodes conditioned on besides `nuisance`. |
+| `n` | `int` | Complete-case subject count across `{a, m, b} + conditioning_nodes`. |
+| `indirect_pillai`, `direct_pillai`, `total_pillai` | `float` | Rotation-invariant Pillai indirect trace $\operatorname{tr}(S_{bb}^{-1} (R_a B_{\text{ind}})^\top (R_a B_{\text{ind}})) / \min(k_a, k_b)$, direct Pillai ($a - b \mid S, m$), and total Pillai ($a - b \mid S$). |
+| `a_to_m_pillai`, `m_to_b_pillai` | `float` | Constituent leg Pillai statistics ($a - m \mid S$ and $m - b \mid S, a$). |
+| `prop_mediated` | `float` | `indirect_pillai / (indirect_pillai + direct_pillai)` (`NaN` when denominator $\le 10^{-12}$). |
+| `p_indirect`, `p_direct`, `p_total`, `p_a_to_m`, `p_m_to_b` | `Optional[float]` | Intersection-union Freedman-Lane add-one $p$-value `max(p_sub1, p_sub2)` across $H_{0,1}: B_{am}=0$ and $H_{0,2}: B_{mb\cdot a}=0$ (`None` when `pm["p_reason"]` suppresses fixed-model $p$-values), plus direct, total, and leg $p$-values. |
+| `indirect_ci`, `direct_ci`, `total_ci`, `prop_mediated_ci` | `Tuple[Optional[float], Optional[float]]` | Percentile 95% subject-bootstrap intervals reusing `SeedSequence(random_state).spawn(4)[1]` (`(None, None)` when `n_bootstrap == 0`). |
+| `B_am`, `B_mb`, `B_indirect`, `B_direct`, `B_total` | `np.ndarray` | Structural slope matrices satisfying `B_total == B_direct + B_indirect` (`B_indirect == B_am @ B_mb`). |
+| `components` | `pd.DataFrame` | Per-component decomposition (`component`, `indirect`, `direct`, `total`, `prop_mediated`, `p_indirect`, `p_direct`, `p_total`, 95% CI columns, `null_rows`). |
+| `null_rows`, `p_reason` | `str`, `Optional[str]` | Provenance label (`heldout-fixed`, `train-fixed`, etc.) and any $p$-value suppression reason inherited from `pm`. |
+
+**Fixed-measurement comparison warning on `"deep"` / `"flow"` fits:** calling `compare_path_models(result, views_train=..., views_test=..., graphs=...)` on a nonlinear fit (`result["family"] in ("deep", "flow")`) emits a `RuntimeWarning` (also appended to `out["warnings"]`) recommending `training_topology` refit mode (`method=..., k=..., views=...`).
+
+**Interactive worker-pool guard (`n_jobs > 1`):** all `ProcessPoolExecutor` entry points (`path_model(..., null="refit"|"both")`, `loading_inference`, `latent_stability`, `bagged_fit`, `multistart_fit`, `solution_uniqueness`, `feature_relevance`, `data_safety(influence=True)`, `simlr_perm`, `compare_observed_path_models`) check `sys.modules["__main__"].__file__` when `n_jobs` resolves to `> 1` workers and raise a `ValueError` instructing interactive/notebook callers to run from a script or pass `n_jobs=1`.
 
 ## scikit-learn
 

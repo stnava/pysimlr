@@ -1060,6 +1060,150 @@ def test_directed_graph_fit_excludes_reversed_present_edges_from_absent():
     assert pm_rev["fit"]["rejected"] is False
 
 
+# ----------------------------------------------------------------------------- mediation & next_steps (items 1, 6, 8)
+def test_mediation_chain_vs_star_and_plot_annotation():
+    """Plan item 1: on planted chain [(0, 1), (1, 2)], recovers indirect view0 -> view1 -> view2
+    at the add-one floor 1/(B+1) and direct p > 0.05; planted star [(0, 1), (0, 2)] gives the
+    reverse (p_indirect > 0.05, p_direct at floor); exact B_total == B_direct + B_indirect holds;
+    and plot_path_model annotates the indirect path."""
+    import matplotlib.pyplot as plt
+
+    b_sweeps = 499
+    floor = 1.0 / (b_sweeps + 1)
+
+    # 1. Planted chain: view0 -> view1 -> view2
+    chain_case = build_path_graph_case([(0, 1), (1, 2)], 520, 2, (16, 16, 16), 0.22, random_state=11)
+    tr_c, te_c = _split(chain_case, 320)
+    res_c = _fit("simlr", tr_c, 2, iterations=45)
+    pm_c = _pm(
+        res_c, te_c, rows="heldout", graph=[(0, 1), (1, 2)],
+        conditioning="parents", n_permutations=b_sweeps, n_bootstrap=200, random_state=7,
+    )
+    med_c = pysimlr.mediation(pm_c, 0, 1, 2)
+    assert (med_c["a"], med_c["m"], med_c["b"]) == ("view0", "view1", "view2")
+    assert med_c["p_indirect"] == pytest.approx(floor)
+    assert med_c["p_direct"] > 0.05
+    assert med_c["prop_mediated"] > 0.65
+    assert med_c["indirect_pillai"] > 0.18 > med_c["direct_pillai"]
+    assert med_c["indirect_pillai"] > 4.0 * med_c["direct_pillai"]
+    np.testing.assert_allclose(med_c["B_total"], med_c["B_direct"] + med_c["B_indirect"], atol=1e-12)
+    np.testing.assert_allclose(med_c["B_indirect"], med_c["B_am"] @ med_c["B_mb"], atol=1e-12)
+    assert med_c["indirect_ci"][0] > 0.10 and med_c["indirect_ci"][1] >= med_c["indirect_ci"][0]
+    assert len(med_c["components"]) == 2
+    assert (med_c["components"]["null_rows"] == "heldout-fixed").all()
+
+    # Plot annotation check (both omnibus and per-component modes)
+    fig0 = pysimlr.plot_path_model(pm_c, mediation=med_c)
+    fig1 = pysimlr.plot_path_model(pm_c, component=0, mediation=[med_c])
+    texts0 = "\n".join(t.get_text() for t in fig0.axes[0].texts)
+    texts1 = "\n".join(t.get_text() for t in fig1.axes[0].texts)
+    assert "view0→view1→view2" in texts0 and "ind V" in texts0
+    assert "ind β" in texts1
+    plt.close(fig0)
+    plt.close(fig1)
+
+    # 2. Planted star (common cause): view0 -> view1 and view0 -> view2, NO view1 -> view2 link
+    star_case = build_path_graph_case([(0, 1), (0, 2)], 520, 2, (16, 16, 16), 0.22, random_state=12)
+    tr_s, te_s = _split(star_case, 320)
+    res_s = _fit("simlr", tr_s, 2, iterations=45)
+    pm_s = _pm(
+        res_s, te_s, rows="heldout", graph=[(0, 1), (0, 2)],
+        conditioning="parents", n_permutations=b_sweeps, n_bootstrap=200, random_state=8,
+    )
+    med_s = pysimlr.mediation(pm_s, "view0", "view1", "view2")
+    assert med_s["p_indirect"] > 0.05
+    assert med_s["p_direct"] == pytest.approx(floor)
+    assert med_s["prop_mediated"] < 0.20
+
+    # 3. Disjoint-channel composite-null calibration at k=2 (20 seeds):
+    # A -> M on comp 0 only, M -> B on comp 1 only => B_indirect == 0 even though both legs have Pillai > 0.25
+    disj_pils, disj_rejs = [], []
+    for s_disj in range(20):
+        rng_d = np.random.default_rng(s_disj)
+        n_d = 240
+        z_a = rng_d.standard_normal((n_d, 2))
+        z_m = np.column_stack([0.85 * z_a[:, 0] + 0.35 * rng_d.standard_normal(n_d), rng_d.standard_normal(n_d)])
+        z_b = np.column_stack([0.35 * rng_d.standard_normal(n_d), 0.85 * z_m[:, 1] + 0.35 * rng_d.standard_normal(n_d)])
+        pm_disj = pysimlr.path_model_from_scores(
+            {"A": z_a, "M": z_m, "B": z_b},
+            rows="heldout", n_permutations=199, n_bootstrap=0, random_state=s_disj,
+        )
+        med_disj = pysimlr.mediation(pm_disj, "A", "M", "B")
+        assert med_disj["a_to_m_pillai"] > 0.25 and med_disj["m_to_b_pillai"] > 0.25
+        disj_pils.append(med_disj["indirect_pillai"])
+        disj_rejs.append(med_disj["p_indirect"] < 0.05)
+    assert float(np.median(disj_pils)) < 0.03
+    assert float(np.mean(disj_rejs)) <= 0.10
+
+    # 4. External scalar outcome node (kb == 1) + validation errors
+    rng = np.random.default_rng(4)
+    n_d = 240
+    z_a = rng.standard_normal((n_d, 2))
+    z_m = np.column_stack([0.85 * z_a[:, 0] + 0.35 * rng.standard_normal(n_d), rng.standard_normal(n_d)])
+    y_out = 0.8 * z_m[:, 0] + 0.4 * rng.standard_normal(n_d)
+    pm_out = pysimlr.path_model_from_scores(
+        {"A": z_a, "M": z_m}, outcome=y_out,
+        rows="heldout", n_permutations=399, n_bootstrap=100, random_state=4,
+    )
+    med_out = pysimlr.mediation(pm_out, "A", "M", "outcome")
+    assert med_out["p_indirect"] == pytest.approx(1.0 / 400)
+    assert len(med_out["components"]) == 2
+    with pytest.raises(ValueError, match="three distinct"):
+        pysimlr.mediation(pm_out, "A", "A", "outcome")
+
+
+def test_compare_path_models_warns_on_deep_and_flow_fixed_structural_mode():
+    """Plan item 6: compare_path_models in fixed-measurement structural mode warns on deep and flow
+    fits (pointing to training_topology refit mode), and does not warn on linear simlr."""
+    case = build_path_graph_case([(0, 1), (1, 2)], 120, 2, (8, 8, 8), 0.35, random_state=21)
+    tr, te = _split(case, 80)
+    graphs = {"chain": [(0, 1), (1, 2)], "complete": None}
+
+    res_lin = _fit("simlr", tr, 2, iterations=8)
+    with warnings.catch_warnings(record=True) as rec_lin:
+        warnings.simplefilter("always")
+        cmp_lin = pysimlr.compare_path_models(res_lin, tr, te, graphs, n_bootstrap=20, n_permutations=39)
+    assert not any("training_topology" in str(w.message) for w in rec_lin)
+    assert not any("training_topology" in w for w in cmp_lin["warnings"])
+
+    for nl_method in ("lend", "flow_v"):
+        res_nl = _fit(nl_method, tr, 2, iterations=4, batch_size=40)
+        with pytest.warns(RuntimeWarning, match="training_topology") as rec_nl:
+            cmp_nl = pysimlr.compare_path_models(res_nl, tr, te, graphs, n_bootstrap=20, n_permutations=39)
+        assert len(rec_nl) >= 1
+        assert any("training_topology" in w for w in cmp_nl["warnings"])
+
+
+def test_parallel_n_jobs_without_main_file_raises_value_error(monkeypatch):
+    """Plan item 8: when sys.modules['__main__'] has no __file__ (interactive / notebook),
+    n_jobs > 1 raises a clear ValueError naming script and n_jobs=1 instead of BrokenProcessPool."""
+    import sys
+    import types
+
+    case = build_path_graph_case([(0, 1)], 50, 2, (6, 6), 0.4, random_state=31)
+    views = case["views"]
+    res = _fit("simlr", views, 2, iterations=5)
+
+    fake_main = types.ModuleType("__main__")
+    monkeypatch.setitem(sys.modules, "__main__", fake_main)
+
+    with pytest.raises(ValueError, match="n_jobs=1"):
+        pysimlr.path_model(res, views, rows="train", null="refit", n_refits=2, n_jobs=2)
+    with pytest.raises(ValueError, match="script"):
+        pysimlr.loading_inference("simlr", views, 2, n_subsamples=2, n_permutations=0, n_jobs=2)
+    rng = np.random.default_rng(0)
+    obs_df = rng.standard_normal((40, 3))
+    with pytest.raises(ValueError, match="n_jobs=1"):
+        pysimlr.compare_observed_path_models(
+            obs_df, {"m1": {"edges": [("V0", "V1"), ("V1", "V2")]}},
+            names=["V0", "V1", "V2"], n_boot=4, n_jobs=2,
+        )
+    # n_jobs=1 continues to run cleanly in interactive sessions
+    pm_serial = pysimlr.path_model(res, views, rows="train", null="refit", n_refits=2, n_bootstrap=0, n_jobs=1)
+    assert pm_serial["edges"]["p_refit"].notna().all()
+
+
+
 
 
 

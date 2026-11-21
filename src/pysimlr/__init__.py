@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.45.0"
+__version__ = "0.46.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -116,6 +116,7 @@ from .flows import (
     exact_pcf_penalty_bpd,
     flow_simr,
     flow_simr_v,
+    predict_conditional_view,
     resolve_flow_type,
 )
 from .consensus import (
@@ -351,6 +352,7 @@ __all__ = [
     'simlr_path',
     'permutation_test',
     'path_model',
+    'mediation',
     'compare_path_models',
     'compare_path_models_from_scores',
     'predict_path',
@@ -372,6 +374,7 @@ __all__ = [
     'predict_deep',
     'flow_simr',
     'flow_simr_v',
+    'predict_conditional_view',
     'FLOW_TYPES',
     'FLOW_BASE_DISTRIBUTIONS',
     'resolve_flow_type',
@@ -529,6 +532,7 @@ _LAZY_ATTRS = {
     'apply_simlr_matrices_dtfix': 'nnh',
     # pandas: the score-level path model (plan 2026-11-06).
     'path_model': 'sem',
+    'mediation': 'sem',
     'compare_path_models': 'sem',
     'compare_path_models_from_scores': 'sem',
     'predict_path': 'sem',

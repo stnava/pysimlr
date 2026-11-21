@@ -133,24 +133,24 @@ def _targets(result: Dict[str, Any], views: List[Optional[torch.Tensor]], avail:
     """Component j, per-view signs, and {m: (standardized X_m, target t)} on the given rows."""
     from .api import _preprocess_views, predict
     from .sem import view_scores
-    rot = result["loading_rotation"].detach().double().numpy()
     call = [views[i] if i in avail else None for i in range(len(views))]
     pred = predict(result, call)
-    u = np.asarray(pred["u"].detach().double()) @ rot
+    n_rows = int(pred["u"].shape[0])
     if component is None:
         if outcome is None:
             raise ValueError("pass component= or outcome= (the component most correlated with it is used).")
         y = np.asarray(outcome, dtype=float).ravel()
-        if len(y) != u.shape[0]:
-            raise ValueError(f"outcome has {len(y)} rows; the views have {u.shape[0]}.")
-        component = int(np.argmax([abs(np.corrcoef(u[:, c], y)[0, 1]) for c in range(u.shape[1])]))
+        if len(y) != n_rows:
+            raise ValueError(f"outcome has {len(y)} rows; the views have {n_rows}.")
     if signs is None:
         vs = view_scores(result, call, sign_against=pred["u"], standardize=True, _pred=pred)
-        signs_out = vs["signs"]
     else:
         sgn_seq = [signs.get(m) for m in range(len(views))] if isinstance(signs, Mapping) else signs
         vs = view_scores(result, call, signs=sgn_seq, standardize=True, _pred=pred)
-        signs_out = vs["signs"]
+    signs_out = vs["signs"]
+    if component is None:
+        u = vs["consensus"]
+        component = int(np.argmax([abs(np.corrcoef(u[:, c], y)[0, 1]) for c in range(u.shape[1])]))
     sc = {i: vs["scores"][i] for i in avail}
     xs, _ = _preprocess_views([views[i] for i in avail], result["scale_list"],
                               [result["provenance_list"][i] for i in avail])

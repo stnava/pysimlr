@@ -8,7 +8,7 @@ from paper_numbers import N, RAW
 
 ## Model Formulation
 
-`Flow-SiMR-V` prepends a linear entrypoint projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's invertible Real-valued Non-Volume Preserving (`RealNVP`) normalizing flow [@dinh2016density; @rezende2015variational; @kingma2018; @papamakarios2021; @kobyzev2020]. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch [@paszke2019], adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
+`Flow-SiMR-V` prepends a linear entrypoint projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's invertible normalizing flow [@dinh2016density; @durkan2019neural; @rezende2015variational; @kingma2018; @papamakarios2021; @kobyzev2020]. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. Under `flow_type="auto"` (default), `Flow-SiMR-V` dispatches to a coordinate-wise strictly monotone rational-quadratic spline flow with positive data-dependent ActNorm (`ActNormElementwiseRQSplineFlow` [@durkan2019neural]) when $k = 1$—where RealNVP has an empty conditioner partition (`split_dim = 0`) and reduces to a global affine map—and to Real-valued Non-Volume Preserving (`RealNVP`) affine coupling layers [@dinh2016density] when $k \ge 2$, with optional post-warmup Hadamard Principal Component Flow (`pcf_alpha`) Jacobian row-orthogonality regularization [@cunningham2022principal]. The flows are implemented in PyTorch [@paszke2019], adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
 
@@ -23,7 +23,7 @@ For each input modality $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ ($m = 1, \d
    $$
    \mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}}),
    $$
-   where $f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k$ is a composition of RealNVP affine coupling layers [@dinh2016density] with exact inverse $f_{\text{flow}, m}^{-1}$ and tractable log-determinant $\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|$.
+   where $f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k$ is a monotone rational-quadratic spline bijection [@durkan2019neural] at $k = 1$ (or when `flow_type="spline1d"`) and a composition of RealNVP affine coupling layers [@dinh2016density] at $k \ge 2$, with exact inverse $f_{\text{flow}, m}^{-1}$ and tractable log-determinant $\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|$.
 3. **Consensus mixing and inverse reconstruction:**
    $$
    \mathbf{U}_m = \operatorname{Consensus}\big(\{\mathbf{Z}_j\}_{j \in \mathcal{N}(m)}\big), \qquad \hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}(\mathbf{U}_m) \mathbf{V}_m^\top.
@@ -33,7 +33,7 @@ For each input modality $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ ($m = 1, \d
 
 ## Rectangular OLEE Prior Collapse and Detached-Prior Optimization
 
-A structural distinction separates square ambient-space normalizing flows (`Flow-SiMR`, where $f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}$) from rectangular OLEE-bottlenecked flows (`Flow-SiMR-V`, where $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ with $k \ll p_m$ precedes $f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k$).
+A structural distinction separates square ambient-space normalizing flows (`Flow-SiMR`, where $f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}$, stabilized with bounded coupling scales `scale_bound = 0.5`, optional Probabilistic PCA base distributions `base_distribution="gaussian_pca"`, and exact likelihood-preserving post-flow shared $\mathrm{O}(k)$ Varimax gauge rotations `varimax=True` [@kaiser1958varimax]) from rectangular OLEE-bottlenecked flows (`Flow-SiMR-V`, where $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ with $k \ll p_m$ precedes $f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k$).
 
 ### Why End-to-End Gaussian Prior Gradients Collapse $\mathbf{V}_m$
 
@@ -58,48 +58,42 @@ In the `ADNI-MCI` hyperparameter sweep ($N = 1,084$, $k = 3$, `Protocol B`, `{py
 
 ### Conditional Clinical Imputation (True vs. Imputed Serums)
 
-Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In @fig-flow-imputation, we train `Flow-SiMR-V` on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and evaluate serum triglyceride (`s5`) imputation from vitals alone via `pysimlr.plot_predictions`.
+Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in post-flow latent space (`pysimlr.predict_conditional_view`). In @fig-flow-imputation, we train `Flow-SiMR-V` on the Diabetes dataset under a leak-free 70/30 split, withhold the blood serum view on test patients, and evaluate serum triglyceride (`s5`) imputation from vitals alone via `pysimlr.plot_predictions`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-imputation
-#| fig-cap: 'Flow-SiMR-V conditional Schur-complement decoding imputes held-out serum triglycerides (`s5`) from systemic vitals alone (`pysimlr.plot_predictions`). Points show observed versus imputed standardized `s5` on the 30% held-out Diabetes test split ($k = 2$), with the solid line marking identity and the header reporting test correlation and error.'
+#| fig-cap: 'Flow-SiMR-V conditional Schur-complement decoding (`pysimlr.predict_conditional_view`) imputes held-out serum triglycerides (`s5`) from systemic vitals alone (`pysimlr.plot_predictions`). Points show observed versus imputed training-standardized `s5` on the 30% held-out Diabetes test split ($k = 2$), with the solid line marking identity and the header reporting test correlation and error.'
 #| out-width: 72%
 #| echo: false
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from sklearn.datasets import load_diabetes
-from sklearn.preprocessing import StandardScaler
 import pysimlr
-from pysimlr.flows import flow_simr_v
+from pysimlr.utils import preprocess_data
 
 data = load_diabetes()
-X = StandardScaler().fit_transform(data.data)
-mats = [X[:, :5], X[:, 5:]]
+X_raw = data.data
+mats = [X_raw[:, :5], X_raw[:, 5:]]
 k = 2
 
-n_samples = X.shape[0]
-np.random.seed(42)
-torch.manual_seed(42)
-perm = np.random.permutation(n_samples)
+n_samples = X_raw.shape[0]
+rng = np.random.default_rng(42)
+perm = rng.permutation(n_samples)
 train_idx = perm[:int(n_samples * 0.7)]
 test_idx = perm[int(n_samples * 0.7):]
 
 train_x = [torch.tensor(m[train_idx]).float() for m in mats]
 test_x = [torch.tensor(m[test_idx]).float() for m in mats]
 
-res = flow_simr_v(train_x, k=k, device="cpu", verbose=False)
-cond = res["cond_inference"]
+res = pysimlr.fit("flow_v", train_x, k, random_state=42)
+imp = pysimlr.predict_conditional_view(res, test_x[0], observed_idx=0, target_idx=1)
 
-with torch.no_grad():
-    obs_z1 = res["model"].linear_encoders[0](test_x[0])
-    pred_z2 = cond.predict_conditional(observed_idx=0, target_idx=1, observed_z=obs_z1)
-    imputed_x2 = res["model"].flows[1].inverse(pred_z2) @ res["model"].linear_encoders[1].v.t()
-
-true_s5 = test_x[1][:, 4].numpy()
-imputed_s5 = imputed_x2[:, 4].numpy()
+true_x2_std = preprocess_data(test_x[1], res["scale_list"], res["provenance_list"][1])
+true_s5 = true_x2_std[:, 4].numpy()
+imputed_s5 = imp["target_standardized"][:, 4].numpy()
 
 fig = pysimlr.plot_predictions(true_s5, imputed_s5, title="Conditional cross-view serum imputation (s5)")
 plt.show()

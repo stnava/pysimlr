@@ -1285,18 +1285,26 @@ def analyze_views(
                 nbr_g = np.column_stack(
                     [_normal_scores_1d(nbr_c[:, j]) for j in range(nbr_c.shape[1])]
                 )
+                lm_g = np.column_stack(
+                    [_normal_scores_1d(lm_s[:, j]) for j in range(lm_s.shape[1])]
+                )
+                r2_flow_lm, row_flow_lm = _press_r2_per_row(lm_g, nbr_g)
                 if ug_r.shape[1] > 0:
                     ug_s = (ug_r - np.mean(ug_r, axis=0, keepdims=True)) / np.maximum(
                         np.std(ug_r, axis=0, keepdims=True), SD_FLOOR
                     )
                     r2_flow_g, row_flow_g = _press_r2_per_row(ug_s, nbr_g)
-                    flow_delta = (
-                        (row_flow_g - base_fwd_row)
-                        if r2_flow_g > max(r2_lin_fwd, 0.0)
-                        else np.full(n_g, -0.02)
-                    )
+                    if r2_flow_lm > r2_flow_g:
+                        r2_flow_best, row_flow_best = r2_flow_lm, row_flow_lm
+                    else:
+                        r2_flow_best, row_flow_best = r2_flow_g, row_flow_g
                 else:
-                    flow_delta = np.full(n_g, -0.02)
+                    r2_flow_best, row_flow_best = r2_flow_lm, row_flow_lm
+                flow_delta = (
+                    (row_flow_best - base_fwd_row)
+                    if r2_flow_best > max(r2_lin_fwd, 0.0)
+                    else np.full(n_g, -0.02)
+                )
                 press_flow_vecs.append(best_lin_row + flow_delta)
 
                 um_top = lm_s[:, : min(2, lm_s.shape[1])]
@@ -1518,7 +1526,7 @@ def recommend_presets(
             d_extra = {
                 "nonlinear_lend": 3 * k_used + 4,
                 "nonlinear_ned": 4 * k_used + 6,
-                "nonlinear_flow": 4 * k_used + 6,
+                "nonlinear_flow": (2 * k_used + 3 if k_used == 1 else 4 * k_used + 6),
                 "nonlinear_shared_private": 4 * k_used + 6,
             }.get(p.name, 4 * k_used + 6)
             aic_cost = (2.0 * float(d_extra)) / float(n_aic)

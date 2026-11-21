@@ -33,7 +33,8 @@ from . import api
 _FORWARDED = ("iterations", "energy_type", "mixing_algorithm", "positivity", "sparseness",
               "nsa_w", "optimizer_type", "learning_rate", "topology", "varimax",
               "initialization_type", "hidden_dims", "dropout", "batch_size", "private_k",
-              "num_layers", "hidden_dim", "device", "tol", "patience", "random_state")
+              "num_layers", "hidden_dim", "flow_type", "pcf_alpha",
+              "device", "tol", "patience", "random_state")
 
 
 def _split_views(X: Any, view_sizes: Optional[Sequence[int]]) -> List[torch.Tensor]:
@@ -64,7 +65,8 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
     iterations, energy_type, mixing_algorithm, positivity, sparseness, nsa_w,
     optimizer_type, learning_rate, topology, varimax,
     initialization_type, hidden_dims, dropout, batch_size, private_k,
-    num_layers, hidden_dim, device, tol, patience, random_state :
+    num_layers, hidden_dim, flow_type, pcf_alpha,
+    device, tol, patience, random_state :
         Forwarded to `pysimlr.fit` when not ``None``; ``None`` means the
         selected method's default (`pysimlr.describe_method`).
         ``random_state`` seeds the fit on a private RNG stream; the global
@@ -110,6 +112,7 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
                  hidden_dims: Optional[Sequence[int]] = None, dropout: Optional[float] = None,
                  batch_size: Optional[int] = None, private_k: Optional[int] = None,
                  num_layers: Optional[int] = None, hidden_dim: Optional[int] = None,
+                 flow_type: Optional[str] = None, pcf_alpha: Optional[float] = None,
                  device: Optional[str] = None, tol: Optional[float] = None,
                  patience: Optional[int] = None, random_state: Optional[int] = None,
                  scale: Optional[bool] = None,
@@ -135,6 +138,8 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
         self.private_k = private_k
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
+        self.flow_type = flow_type
+        self.pcf_alpha = pcf_alpha
         self.device = device
         self.tol = tol
         self.patience = patience

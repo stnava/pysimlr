@@ -2,14 +2,14 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.9.36">
+<meta name="generator" content="quarto-1.9.38">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Brian B. Avants">
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
-<meta name="dcterms.date" content="2026-11-04">
+<meta name="dcterms.date" content="2026-11-20">
 
 <title>Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</title>
 <style>
@@ -44,7 +44,7 @@ ul.task-list li input[type="checkbox"] {
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="site_libs/quarto-html/anchor.min.js"></script>
 <link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
 <link href="site_libs/bootstrap/bootstrap-5ccb035bea26c1e21f80f44cf7c27909.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
@@ -179,7 +179,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -191,7 +191,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_flow_simr_v.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -261,7 +261,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">November 4, 2026</p>
+      <p class="date">November 20, 2026</p>
     </div>
   </div>
   
@@ -275,7 +275,7 @@ window.Quarto = {
 
 <section id="abstract" class="level1 unnumbered">
 <h1 class="unnumbered">Abstract</h1>
-<p>Integrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We introduce the Similarity-driven Multi-view Representation (SiMR) framework, which couples a sparse, non-negative, approximately orthogonal linear input projection (<code>nsa_flow</code>) with interchangeable linear (<code>SiMLR</code>), non-linear decoder (<code>LEND</code>), and invertible normalizing-flow (<code>Flow-SiMR-V</code>) alignment modules. Across <span class="math inline">\(1,084\)</span> participants with Mild Cognitive Impairment from the Alzheimer’s Disease Neuroimaging Initiative (<code>ADNI-MCI</code>) and eleven additional multi-omic, clinical, and synthetic benchmarks, aligning baseline regional volumes, volume-to-surface-area ratios and DiReCT cortical thickness with eleven neuropsychological scales during training improves out-of-sample cognitive prediction from structural magnetic resonance imaging alone from <span class="math inline">\(R^2 =\)</span> 0.152 (principal component analysis) to <span class="math inline">\(R^2 =\)</span> 0.209 (<code>NED</code>), and the component that carries this prediction loads on entorhinal, temporal and inferior parietal measures that replicate across half-sample refits. Crucially, evaluating learned representations across both multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve 3.5-fold higher single-factor predictive utility on <code>ADNI-MCI</code> (<span class="math inline">\(R^2 =\)</span> 0.154 for <code>SiMLR</code> versus 0.044 for principal component analysis), and recover ground-truth feature supports with <span class="math inline">\(F_1\)</span> between 0.500 and 1.000 at moderate (<span class="math inline">\(50\%\)</span>) feature sparsity.</p>
+<p>Integrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We present the Similarity-driven Multi-view Representation (SiMR) framework (<code>pysimlr v0.43.1</code>), which couples a sparse, non-negative, approximately orthogonal linear input projection (<code>nsa_flow</code>) with interchangeable linear (Similarity-driven Multi-view Linear Representation, <code>SiMLR</code>), non-linear decoder (Linear Entrypoint with Non-linear Decoders, <code>LEND</code>), and invertible normalizing-flow (Normalizing-Flow SiMR, <code>Flow-SiMR-V</code>) alignment modules. Across 12 benchmarks spanning six multi-view biomedical cohorts and six synthetic ground-truth regimes, we evaluate seven candidate architectures across linear subspace probes, axis-aligned tree probes, and feature-support recovery. In the Alzheimer’s Disease Neuroimaging Initiative Mild Cognitive Impairment (<code>ADNI-MCI</code>, <span class="math inline">\(N = 1,084\)</span>) cohort, aligning baseline regional brain volumes, volume-to-surface-area ratios, and Diffeomorphic Registration-based Cortical Thickness (<code>DiReCT</code>) with 11 neuropsychological scales during training improves out-of-sample composite cognitive prediction from structural magnetic resonance imaging alone from <span class="math inline">\(R^2 =\)</span> 0.148 (principal component analysis) to <span class="math inline">\(R^2 =\)</span> 0.209 (<code>NED</code>). Across 20 separate half-sample refits of <code>ADNI-MCI</code>, the predictive component isolates entorhinal, temporal, and inferior parietal regions that replicate across subsamples. Evaluating learned representations across multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve 3.7-fold higher single-factor predictive utility on <code>ADNI-MCI</code> (<span class="math inline">\(R^2 =\)</span> 0.155 for <code>Flow-SiMR-V</code> versus 0.042 for principal component analysis), and recover ground-truth feature supports with <span class="math inline">\(F_1\)</span> between 0.500 and 1.000 at <span class="math inline">\(50\%\)</span> feature sparsity (<code>q = 0.5</code>). To resolve shrinkage-sparsity cancellation, simplex distortion, and multi-component collapse in high-dimensional cohorts, <code>pysimlr v0.43.1</code> introduces non-subtractive quantile sparsification (<code>sparseness_type="hard"</code>), exact radial simplex normalization, two-stage support-restricted uniform shrinkage (<code>fit_uniform_shrunk</code>) with rank-aware directional defaults (<code>resolve_directional_defaults</code>), calibrated out-of-bag intraclass correlation (<code>ICC(1)</code>) stability (<code>latent_stability</code>), ensemble bagging (<code>bagged_fit</code>), and permutation or Gaussian maximum-likelihood path inference (<code>path_model</code>, <code>observed_path_model</code>). Across 20-seed synthetic theorem checks and 108 plus 96 real-data revisit fits, removing subtractive shrinkage cancellation and enforcing disjoint column supports maintains exact column orthogonality while preserving single-axis predictive utility. Multi-variable linear accuracy measures subspace capacity alone; evaluating coordinate-level localization requires axis-sensitive probes, non-subtractive constraints, and out-of-bag stability checks matched to the geometry of the objective.</p>
 
 
 </section>

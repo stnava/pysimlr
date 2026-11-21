@@ -955,6 +955,185 @@ class FlowConditionalInference:
         
         return mu_cond
 
+
+def predict_conditional_view(
+    result: Dict[str, Any],
+    observed_view: Union[torch.Tensor, np.ndarray],
+    *,
+    observed_idx: int,
+    target_idx: int,
+    return_input_units: bool = False,
+    device: Optional[str] = None,
+) -> Dict[str, torch.Tensor]:
+    """Cross-view Gaussian Schur-complement imputation for `flow_v` / `flow_simr_v` / `flow_simr`.
+
+    Standardizes ``observed_view`` strictly with the training provenance of
+    ``observed_idx``, maps it through both the linear first layer (for
+    `FlowSiMRVModel`) and normalizing-flow encoder into the post-flow latent
+    space where ``result["cond_inference"]`` was fitted, predicts the conditional
+    latent of ``target_idx``, and inverts ``target_idx``'s flow decoder (and
+    ``V_{target}^T`` when present).
+
+    Parameters
+    ----------
+    result : dict
+        Fitted result from ``pysimlr.fit("flow_v", ...)``, ``flow_simr_v``, or ``flow_simr``.
+    observed_view : Tensor or ndarray of shape ``(n, p_{observed_idx})``
+        Observed feature matrix for view ``observed_idx`` (unstandardized raw units,
+        matching the inputs passed to ``fit`` / ``flow_simr_v`` / ``flow_simr``).
+    observed_idx, target_idx : int
+        Zero-based indices of the conditioning view and target view to synthesize.
+    return_input_units : bool, default=False
+        When ``True``, ``target_reconstruction`` is mapped back to raw input units
+        of ``target_idx`` via `utils.invert_preprocessing`; when ``False``, it is
+        in the model's training-standardized space (matching ``predict``'s ``reconstructions``).
+    device : str, optional
+         Torch device for evaluation (defaults to ``"cpu"``).
+
+    Returns
+    -------
+    dict of str -> torch.Tensor
+        ``observed_latent`` ``(n, k)``, ``target_latent`` ``(n, k)``,
+        ``target_standardized`` ``(n, p_{target_idx})``, and
+        ``target_reconstruction`` ``(n, p_{target_idx})``.
+    """
+    from .api import as_views
+    from .utils import invert_preprocessing, preprocess_data
+
+    cond = result.get("cond_inference")
+    model = result.get("model")
+    if not isinstance(cond, FlowConditionalInference) or model is None or not getattr(model, "is_flow", False):
+        raise ValueError(
+            "predict_conditional_view requires a fitted flow result ('flow_v', 'flow_simr_v', or 'flow_simr') "
+            "containing 'model' and 'cond_inference'."
+        )
+    prov_list = result.get("provenance_list")
+    scale_list = result.get("scale_list")
+    if not isinstance(prov_list, list) or not isinstance(scale_list, list):
+        raise ValueError("result is missing 'provenance_list' or 'scale_list'.")
+
+    n_views = len(prov_list)
+    if (
+        isinstance(observed_idx, bool)
+        or not isinstance(observed_idx, (int, np.integer))
+        or not (0 <= int(observed_idx) < n_views)
+    ):
+        raise ValueError(f"observed_idx must be in 0..{n_views - 1}; got {observed_idx!r}.")
+    if (
+        isinstance(target_idx, bool)
+        or not isinstance(target_idx, (int, np.integer))
+        or not (0 <= int(target_idx) < n_views)
+    ):
+        raise ValueError(f"target_idx must be in 0..{n_views - 1}; got {target_idx!r}.")
+    obs_i, tgt_i = int(observed_idx), int(target_idx)
+
+    dev = torch.device("cpu" if device is None else device)
+    raw_obs = as_views([observed_view])[0]
+    expected_p = int(model.input_dims[obs_i])
+    if int(raw_obs.shape[1]) != expected_p:
+        raise ValueError(
+            f"observed_view has {raw_obs.shape[1]} columns, expected {expected_p} for view {obs_i}."
+        )
+
+    mask_mode = result.get("missing_rows") == "mask"
+    obs_row_mask = ~torch.isnan(raw_obs).all(dim=1) if mask_mode else None
+    obs_std = preprocess_data(raw_obs, scale_list, prov_list[obs_i])
+    if obs_row_mask is not None:
+        obs_std = torch.where(obs_row_mask[:, None], obs_std, torch.zeros_like(obs_std))
+
+    k_dim = int(model.latent_dim)
+    tgt_p = int(model.input_dims[tgt_i])
+    model_was_training = model.training
+    try:
+        model.to(dev).eval()
+        with torch.no_grad():
+            x_dev = obs_std.to(dev)
+            if obs_row_mask is not None and not bool(obs_row_mask.any()):
+                nan_lat = torch.full((raw_obs.shape[0], k_dim), float("nan"), dtype=torch.float32)
+                nan_rec = torch.full((raw_obs.shape[0], tgt_p), float("nan"), dtype=torch.float32)
+                return {
+                    "observed_latent": nan_lat,
+                    "target_latent": nan_lat.clone(),
+                    "target_standardized": nan_rec,
+                    "target_reconstruction": nan_rec.clone(),
+                }
+            if obs_row_mask is not None and not bool(obs_row_mask.all()):
+                dev_mask = obs_row_mask.to(dev)
+                x_sub = x_dev[dev_mask]
+                if hasattr(model, "linear_encoders"):
+                    z_sub = model.encoders[obs_i](model.linear_encoders[obs_i](x_sub))
+                else:
+                    z_sub = model.encoders[obs_i](x_sub)
+                cond_mean_orig = cond.joint_mean
+                cond_cov_orig = cond.joint_cov
+                cond.joint_mean = cond_mean_orig.to(dev)
+                cond.joint_cov = cond_cov_orig.to(dev)
+                try:
+                    pred_z_sub = cond.predict_conditional(
+                        observed_idx=obs_i, target_idx=tgt_i, observed_z=z_sub
+                    )
+                finally:
+                    cond.joint_mean = cond_mean_orig
+                    cond.joint_cov = cond_cov_orig
+                if hasattr(model, "linear_encoders"):
+                    z_rec_sub = model.decoders[tgt_i](pred_z_sub)
+                    pred_std_sub = z_rec_sub @ model.linear_encoders[tgt_i].v.t()
+                else:
+                    pred_std_sub = model.decoders[tgt_i](pred_z_sub)
+
+                obs_z_cpu = torch.full((raw_obs.shape[0], k_dim), float("nan"), dtype=torch.float32)
+                pred_z_cpu = torch.full((raw_obs.shape[0], k_dim), float("nan"), dtype=torch.float32)
+                pred_std_cpu = torch.full((raw_obs.shape[0], tgt_p), float("nan"), dtype=torch.float32)
+                obs_z_cpu[obs_row_mask] = z_sub.detach().cpu()
+                pred_z_cpu[obs_row_mask] = pred_z_sub.detach().cpu()
+                pred_std_cpu[obs_row_mask] = pred_std_sub.detach().cpu()
+            else:
+                if hasattr(model, "linear_encoders"):
+                    z_all = model.encoders[obs_i](model.linear_encoders[obs_i](x_dev))
+                else:
+                    z_all = model.encoders[obs_i](x_dev)
+                cond_mean_orig = cond.joint_mean
+                cond_cov_orig = cond.joint_cov
+                cond.joint_mean = cond_mean_orig.to(dev)
+                cond.joint_cov = cond_cov_orig.to(dev)
+                try:
+                    pred_z_all = cond.predict_conditional(
+                        observed_idx=obs_i, target_idx=tgt_i, observed_z=z_all
+                    )
+                finally:
+                    cond.joint_mean = cond_mean_orig
+                    cond.joint_cov = cond_cov_orig
+                if hasattr(model, "linear_encoders"):
+                    z_rec_all = model.decoders[tgt_i](pred_z_all)
+                    pred_std_all = z_rec_all @ model.linear_encoders[tgt_i].v.t()
+                else:
+                    pred_std_all = model.decoders[tgt_i](pred_z_all)
+                obs_z_cpu = z_all.detach().cpu()
+                pred_z_cpu = pred_z_all.detach().cpu()
+                pred_std_cpu = pred_std_all.detach().cpu()
+    finally:
+        model.cpu()
+        if model_was_training:
+            model.train()
+
+    if return_input_units:
+        if obs_row_mask is not None and not bool(obs_row_mask.all()):
+            pred_raw = torch.full_like(pred_std_cpu, float("nan"))
+            pred_raw[obs_row_mask] = invert_preprocessing(
+                pred_std_cpu[obs_row_mask], scale_list, prov_list[tgt_i]
+            )
+        else:
+            pred_raw = invert_preprocessing(pred_std_cpu, scale_list, prov_list[tgt_i])
+    else:
+        pred_raw = pred_std_cpu
+
+    return {
+        "observed_latent": obs_z_cpu,
+        "target_latent": pred_z_cpu,
+        "target_standardized": pred_std_cpu,
+        "target_reconstruction": pred_raw,
+    }
+
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
                      tol: float = DEFAULT_TOL, patience: int = 10,
                      collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,

@@ -183,3 +183,24 @@ def test_build_simlr_pipeline_takes_a_list_of_views():
     y = views[0][:, 0] > 0
     pipe = build_simlr_pipeline(n_components=K, iterations=4, learning_rate=0.05, random_state=0).fit(views, y)
     assert pipe.predict(views).shape == (60,)
+
+
+def test_multiview_simr_forwards_flow_type_and_pcf_alpha():
+    views = _views(n=48)
+    est = MultiViewSiMR(
+        method="flow_v",
+        n_components=1,
+        iterations=4,
+        batch_size=24,
+        flow_type="spline1d",
+        pcf_alpha=0.05,
+        random_state=0,
+    )
+    cloned = clone(est)
+    assert cloned.get_params()["flow_type"] == "spline1d"
+    assert cloned.get_params()["pcf_alpha"] == 0.05
+    cloned.fit(views)
+    assert cloned.parameters_used_["flow_type"] == "spline1d"
+    assert cloned.parameters_used_["pcf_alpha"] == 0.05
+    assert cloned.transform(views).shape == (48, 1)
+

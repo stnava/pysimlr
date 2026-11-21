@@ -1953,6 +1953,12 @@ def _fit_structure(task):
     }
 
 
+import sys as _sys
+
+_STARTUP_MAIN = _sys.modules.get("__main__")
+_STARTUP_MAIN_HAS_FILE = getattr(_STARTUP_MAIN, "__file__", None) is not None
+
+
 def _worker_init():
     torch.set_num_threads(1)
 
@@ -1961,7 +1967,22 @@ def _n_workers(n_jobs: int) -> int:
     import os
     if n_jobs is None or n_jobs == 0 or n_jobs < -1:
         raise ValueError(f"n_jobs must be a positive integer or -1; got {n_jobs}.")
-    return (os.cpu_count() or 1) if n_jobs == -1 else int(n_jobs)
+    workers = (os.cpu_count() or 1) if n_jobs == -1 else int(n_jobs)
+    if workers > 1:
+        main_mod = _sys.modules.get("__main__")
+        if getattr(main_mod, "__file__", None) is None:
+            is_xdist_worker = (
+                bool(os.environ.get("PYTEST_XDIST_WORKER"))
+                and not _STARTUP_MAIN_HAS_FILE
+                and main_mod is _STARTUP_MAIN
+            )
+            if not is_xdist_worker:
+                raise ValueError(
+                    "n_jobs > 1 requires running from a script (where __main__ defines __file__); "
+                    "in an interactive session or notebook, run from a script under "
+                    "`if __name__ == '__main__':` or set n_jobs=1."
+                )
+    return workers
 
 
 def _pool(workers: int):

@@ -429,3 +429,21 @@ def test_per_view_params_sparseness_auto_in_simlr() -> None:
     )
     assert res["sparseness_resolved"][0] is None
     assert res["sparseness_resolved"][1] is not None and 0.2 <= res["sparseness_resolved"][1] <= 0.95
+
+
+def test_recommend_presets_k1_monotone_skewed_views_detect_positive_flow_gain() -> None:
+    rng = np.random.default_rng(77)
+    n = 160
+    z = rng.normal(size=(n, 1))
+    w0 = rng.normal(size=(1, 10))
+    w1 = rng.normal(size=(1, 10))
+    # Monotone heavy-tailed warping exp(1.35 * z) degrades linear R^2 while normal-scores recover z
+    s0 = np.exp(1.35 * z)
+    s1 = np.exp(-1.25 * z)
+    v0 = s0 @ w0 + 0.15 * rng.normal(size=(n, 10))
+    v1 = s1 @ w1 + 0.15 * rng.normal(size=(n, 10))
+    rep = pysimlr.recommend_presets([v0, v1], k=1, allow_nonlinear=True)
+    assert rep["profile"]["nonlinearity"]["flow_press_gain"] > 0.05
+    flow_entry = next(r for r in rep["recommendations"] if r["name"] == "nonlinear_flow")
+    assert flow_entry["metrics"]["delta_vs_best_linear"] > 0.05
+

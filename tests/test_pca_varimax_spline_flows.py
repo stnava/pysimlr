@@ -381,3 +381,76 @@ def test_flow_simr_argument_validation_and_masked_rows():
     assert bool(torch.isfinite(res["latents"][0][6:]).all())
     pred = predict_deep(masked, res, device="cpu")
     assert bool(torch.isfinite(pred["u"]).all())
+
+
+def test_predict_conditional_view_across_flow_v_and_flow_simr():
+    from pysimlr.utils import invert_preprocessing
+
+    rng = np.random.default_rng(31)
+    n_tr, n_te = 72, 24
+    s = rng.standard_normal((n_tr + n_te, 2))
+    # Shifted/scaled raw input units to verify leak-free provenance + return_input_units
+    x0 = torch.tensor(
+        (s @ rng.standard_normal((2, 6)) + 0.15 * rng.standard_normal((n_tr + n_te, 6))) * 3.5 + 12.0,
+        dtype=torch.float32,
+    )
+    x1 = torch.tensor(
+        (s @ rng.standard_normal((2, 5)) + 0.15 * rng.standard_normal((n_tr + n_te, 5))) * 0.4 - 7.5,
+        dtype=torch.float32,
+    )
+    tr_views, te_views = [x0[:n_tr], x1[:n_tr]], [x0[n_tr:], x1[n_tr:]]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res_k1 = pysimlr.fit("flow_v", tr_views, k=1, iterations=12, batch_size=24, random_state=2)
+        res_k2 = pysimlr.fit("flow_v", tr_views, k=2, iterations=12, batch_size=24, random_state=2)
+        res_fs0 = flow_simr(
+            tr_views, k=2, iterations=12, batch_size=24,
+            base_distribution="gaussian_pca", varimax=False, random_state=5,
+        )
+        res_fs1 = flow_simr(
+            tr_views, k=2, iterations=12, batch_size=24,
+            base_distribution="gaussian_pca", varimax=True, random_state=5,
+        )
+
+    for fit_res, k_exp in ((res_k1, 1), (res_k2, 2), (res_fs0, 2)):
+        out_std = pysimlr.predict_conditional_view(fit_res, te_views[0], observed_idx=0, target_idx=1)
+        out_raw = pysimlr.predict_conditional_view(
+            fit_res, te_views[0], observed_idx=0, target_idx=1, return_input_units=True
+        )
+        assert out_std["observed_latent"].shape == (n_te, k_exp)
+        assert out_std["target_latent"].shape == (n_te, k_exp)
+        assert out_std["target_standardized"].shape == (n_te, 5)
+        assert torch.equal(out_std["target_standardized"], out_std["target_reconstruction"])
+        expected_raw = invert_preprocessing(
+            out_std["target_standardized"], fit_res["scale_list"], fit_res["provenance_list"][1]
+        )
+        assert torch.allclose(out_raw["target_reconstruction"], expected_raw, atol=1e-5)
+
+    # Exact conditional-synthesis invariance under shared O(k) Varimax gauge rotation
+    c0 = pysimlr.predict_conditional_view(res_fs0, te_views[0], observed_idx=0, target_idx=1, return_input_units=True)
+    c1 = pysimlr.predict_conditional_view(res_fs1, te_views[0], observed_idx=0, target_idx=1, return_input_units=True)
+    assert torch.allclose(c0["target_reconstruction"], c1["target_reconstruction"], atol=1e-4, rtol=1e-4)
+
+    # Masked unobserved test rows propagate NaN cleanly without corrupting observed rows
+    masked_tr = [v.clone() for v in tr_views]
+    masked_tr[0][:5] = float("nan")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res_m = pysimlr.fit("flow_v", masked_tr, k=2, iterations=8, batch_size=24, missing_rows="mask", random_state=3)
+    te0_masked = te_views[0].clone()
+    te0_masked[2:5] = float("nan")
+    cm = pysimlr.predict_conditional_view(res_m, te0_masked, observed_idx=0, target_idx=1, return_input_units=True)
+    assert bool(torch.isnan(cm["target_reconstruction"][2:5]).all())
+    assert bool(torch.isfinite(cm["target_reconstruction"][5:]).all())
+
+    # Validation checks
+    with pytest.raises(ValueError, match="observed_idx"):
+        pysimlr.predict_conditional_view(res_k2, te_views[0], observed_idx=3, target_idx=1)
+    with pytest.raises(ValueError, match="columns"):
+        pysimlr.predict_conditional_view(res_k2, te_views[1], observed_idx=0, target_idx=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        lin_res = pysimlr.fit("simlr", tr_views, k=2, iterations=3, random_state=0)
+    with pytest.raises(ValueError, match="fitted flow result"):
+        pysimlr.predict_conditional_view(lin_res, te_views[0], observed_idx=0, target_idx=1)

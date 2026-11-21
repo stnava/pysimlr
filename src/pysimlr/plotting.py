@@ -2851,7 +2851,8 @@ def _format_p(p: Optional[float], b_sweeps: Optional[int] = None) -> str:
 
 @_themed
 def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: float = 0.05,
-                    ax=None, node_labels: Optional[Dict[str, str]] = None) -> Any:
+                    ax=None, node_labels: Optional[Dict[str, str]] = None,
+                    mediation: Optional[Union[Dict[str, Any], Sequence[Dict[str, Any]]]] = None) -> Any:
     """Directed/staged SEM path model layout with auto-sized rounded node cards.
 
     When ``component=None`` (default), edges show omnibus association across
@@ -2878,6 +2879,9 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     node_labels : dict, optional
         Mapping from raw node names to human-readable labels
         (e.g. ``{"T1Hier_vol": "Regional Volume", "outcome": "Cognition\\n(CogPC1)"}``).
+    mediation : dict or sequence of dict, optional
+        One or more `pysimlr.mediation` result dicts to annotate as indirect
+        pathways (``a -> m -> b``) on the diagram.
 
     Returns
     -------
@@ -2889,6 +2893,7 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     elif component is not None:
         component = int(component)
 
+    import pandas as pd
     from matplotlib.colors import to_rgb
     from matplotlib.lines import Line2D
 
@@ -3072,6 +3077,50 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
         init_cy = by[25] + ny * 0.16
         callout_list.append({"x": init_cx, "y": init_cy, "text": label_text})
 
+    had_med = False
+    if mediation is not None:
+        med_items = [mediation] if isinstance(mediation, Mapping) else list(mediation)
+        for med in med_items:
+            ma, mm, mb = str(med["a"]), str(med["m"]), str(med["b"])
+            if ma not in pos or mm not in pos or mb not in pos:
+                raise ValueError(f"mediation nodes ({ma!r}, {mm!r}, {mb!r}) must belong to pm['nodes'] {nodes}.")
+            had_med = True
+            (xa, ya), (xm, ym), (xb, yb) = pos[ma], pos[mm], pos[mb]
+            t_med = np.linspace(0.0, 1.0, 61)
+            arc_x = (1.0 - t_med) ** 2 * xa + 2.0 * (1.0 - t_med) * t_med * xm + t_med ** 2 * xb
+            arc_y = (1.0 - t_med) ** 2 * ya + 2.0 * (1.0 - t_med) * t_med * ym + t_med ** 2 * yb
+            med_p = med.get("p_indirect")
+            med_sig = med_p is not None and med_p < alpha
+            ax.plot(arc_x, arc_y, color=_GOOD if med_sig else _INK2,
+                    lw=2.0 if med_sig else 1.4, ls=(0, (5, 2.5)), alpha=0.82, zorder=2)
+            disp_a = (node_labels.get(ma, ma) if node_labels else ma).replace("\n", " ")
+            disp_m = (node_labels.get(mm, mm) if node_labels else mm).replace("\n", " ")
+            disp_b = (node_labels.get(mb, mb) if node_labels else mb).replace("\n", " ")
+            if component is not None and isinstance(med.get("components"), pd.DataFrame) and len(med["components"]):
+                mc_df = med["components"]
+                mc_row = mc_df[mc_df["component"] == component]
+                if len(mc_row):
+                    ind_v = float(mc_row.iloc[0]["indirect"])
+                    p_ind_c = mc_row.iloc[0].get("p_indirect")
+                    med_txt = (f"{disp_a}→{disp_m}→{disp_b}\n"
+                               f"ind β = {ind_v:+.2f}, {_format_p(p_ind_c, b_sweeps)}")
+                else:
+                    med_txt = f"{disp_a}→{disp_m}→{disp_b}\nind V = {float(med['indirect_pillai']):.2f}"
+            else:
+                pm_val = med.get("prop_mediated")
+                pm_str = f" ({float(pm_val):.0%})" if (pm_val is not None and np.isfinite(pm_val)) else ""
+                med_txt = (f"{disp_a}→{disp_m}→{disp_b}\n"
+                           f"ind V = {float(med['indirect_pillai']):.2f}{pm_str}\n"
+                           f"{_format_p(med_p, b_sweeps)}")
+            cx_tri = (xa + xm + xb) / 3.0
+            cy_tri = (ya + ym + yb) / 3.0
+            callout_list.append({
+                "x": 0.55 * xm + 0.45 * cx_tri,
+                "y": 0.55 * ym + 0.45 * cy_tri + 0.24,
+                "text": med_txt,
+                "ec": (_GOOD if med_sig else _GRID),
+            })
+
     # Bounding-box repulsion to prevent edge callout collisions
     w_box, h_box = 0.44, 0.26
     for _ in range(40):
@@ -3099,9 +3148,10 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
                     callout_list[j]["y"] -= oy
 
     for cr in callout_list:
+        ec_col = cr.get("ec", _GRID)
         ax.text(cr["x"], cr["y"], cr["text"], ha="center", va="center",
                 fontsize=8, color=_INK, weight="medium",
-                bbox=dict(boxstyle="round,pad=0.32,rounding_size=0.25", fc=_SURFACE, ec=_GRID, lw=0.7, alpha=0.96),
+                bbox=dict(boxstyle="round,pad=0.32,rounding_size=0.25", fc=_SURFACE, ec=ec_col, lw=0.85, alpha=0.96),
                 zorder=3)
 
     # Auto-sized rounded node cards
@@ -3140,6 +3190,9 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     if had_mod:
         handles.append(Line2D([], [], marker="^", color=_INK, markeredgecolor=_SURFACE, markersize=8,
                               ls="none", label=f"moderated edge (Holm p < {alpha})"))
+    if had_med:
+        handles.append(Line2D([], [], color=_GOOD, lw=2.0, ls=(0, (5, 2.5)),
+                              label="indirect path (mediation)"))
 
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.14), ncol=1, fontsize=8)
     ax.set_xlim(-1.65, 1.70); ax.set_ylim(-1.30, 1.30); ax.set_aspect("equal"); ax.axis("off")

@@ -1312,6 +1312,8 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     # ---- refit null (plan 3.2): per permuted node, plus a global null for the omnibus
     refit = None
     if use_refit:
+        from .loadings import _n_workers
+        _n_workers(n_jobs)
         if n != int(_u_train(result).shape[0]):
             raise ValueError(f"the refit null needs the training views; views has {n} rows, the fit "
                              f"{int(_u_train(result).shape[0])}.")
@@ -1445,6 +1447,9 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             "n": n, "k": k, "edges": edges, "edge_components": edge_components, "moderation": moderation,
             "outcome_edges": outcome_edges, "omnibus": omnibus, "fit": fit, "families": families,
             "edge_models": edge_models, "feature_contributions": feature_contributions, "result": result,
+            "scores": {nm: z.copy() for nm, z in Z.items()},
+            "nuisance": N.copy(),
+            "node_dofs": (None if edge_dofs is None else dict(edge_dofs)),
             "orig_view_indices": (list(orig_view_indices) if orig_view_indices is not None else None),
             "refit_null": None if refit is None else {"per_edge": {e: v.tolist() for e, v in refit["null"].items()},
                                                       "outcome_edges": refit["outcome_note"]},
@@ -2153,13 +2158,25 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
     if len(avail) == 0 or (len(avail) < 2 and outcome_train is None):
         raise ValueError("compare_path_models needs at least two present test views, or one view with an outcome.")
     node_dofs = _result_node_dofs(result, [all_names[m] for m in avail], sc_tr["n"], avail)
-    return _compare_structural_core(
+    out = _compare_structural_core(
         all_names, sc_tr["scores"], sc_te["scores"], avail, graphs,
         directed=directed, covariates_train=covariates_train, covariates_test=covariates_test,
         groups_train=groups_train, groups_test=groups_test, outcome_train=outcome_train,
         outcome_test=outcome_test, std_mode="per_split", node_dofs=node_dofs,
         n_bootstrap=n_bootstrap, n_permutations=n_permutations, alpha=alpha, random_state=random_state,
     )
+    if result.get("family") in ("deep", "flow"):
+        fam = result.get("family")
+        mname = result.get("method", fam)
+        msg = (
+            f"compare_path_models in fixed-measurement structural mode on {fam} fit {mname!r}: "
+            "nonlinear encoders/decoders couple views across the full training topology, so "
+            "held-out linear score regressions tend to favor denser graphs; pass method= and k= "
+            "(training_topology refit mode) to compare candidate graphs on nonlinear fits."
+        )
+        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+        out["warnings"] = list(out.get("warnings") or []) + [msg]
+    return out
 
 
 def compare_path_models_from_scores(
@@ -2463,3 +2480,440 @@ def _node_predict(model: Dict[str, Any], N: np.ndarray, Z: Dict[str, np.ndarray]
             pred = pred + Z[a] @ W[off:off + ka]
         off += ka
     return pred
+
+
+# ----------------------------------------------------------------------------- mediation
+def _resolve_node(pm_nodes: List[str], x: Union[int, str], role: str) -> str:
+    if isinstance(x, (int, np.integer)) and not isinstance(x, bool):
+        idx = int(x)
+        if not 0 <= idx < len(pm_nodes):
+            raise ValueError(f"{role} index {idx} out of range for nodes {pm_nodes}.")
+        nm = pm_nodes[idx]
+    else:
+        nm = str(x)
+        if nm not in pm_nodes:
+            raise ValueError(f"unknown {role} node {nm!r}; path model has {pm_nodes}.")
+    if nm == "consensus":
+        raise ValueError(f"{role} cannot be 'consensus' (consensus is a diagnostic summary of the views).")
+    return nm
+
+
+def _indirect_pillai_np(Ra_ind: np.ndarray, Sbb: np.ndarray, r_eff: int) -> float:
+    m_mat = Ra_ind.T @ Ra_ind
+    if Sbb.shape[0] == 1:
+        return float(m_mat[0, 0] / Sbb[0, 0])
+    return float(np.trace(np.linalg.solve(Sbb, m_mat)) / r_eff)
+
+
+def mediation(
+    pm: Dict[str, Any],
+    a: Union[int, str],
+    m: Union[int, str],
+    b: Union[int, str],
+) -> Dict[str, Any]:
+    """Score-block linear mediation ``a -> m -> b`` on a `path_model` or `path_model_from_scores` result.
+
+    Decomposes the linear effect of score block ``a`` on score block ``b`` through mediator block ``m``
+    after rank-revealing QR residualization on the nuisance design ``N`` (intercept, covariates, group
+    dummies) and, under ``pm["conditioning"] == "parents"``, any other graph neighbours of ``m`` or ``b``
+    besides ``{a, m, b, "consensus"}``.
+
+    Let ``R_a, R_m, R_b`` be the residualized ``(n, k_a), (n, k_m), (n, k_b)`` score blocks. Least-squares
+    structural equations ``R_m = R_a B_am + E_m`` and ``R_b = R_a B_direct + R_m B_mb + E_b`` satisfy the
+    exact multivariate Baron-Kenny decomposition ``B_total = B_direct + B_am @ B_mb`` (where
+    ``B_indirect = B_am @ B_mb``). Omnibus indirect strength is reported on the rotation-invariant Pillai
+    scale ``indirect_pillai = tr((R_b^T R_b)^{-1} (R_a B_indirect)^T (R_a B_indirect)) / min(k_a, k_b)``,
+    alongside ``direct_pillai`` (``a - b | S, m``), ``total_pillai`` (``a - b | S``), and
+    ``prop_mediated = indirect_pillai / (indirect_pillai + direct_pillai)``.
+
+    Inference uses an intersection-union Freedman-Lane permutation test across both sub-nulls of the
+    composite mediation null ``H_0: B_am = 0 or B_{mb.a} = 0``:
+    (1) permuting ``a``'s residual wrt ``S`` while holding ``B_{mb.a}`` fixed tests ``a -> m`` projected
+    along ``m -> b``; (2) permuting ``b``'s residual wrt ``[S, a]`` while holding ``B_am`` fixed tests
+    ``m -> b | a`` projected from ``a -> m``. ``p_indirect = max(p_sub1, p_sub2)`` controls Type-I error
+    across the composite null without parametric Sobel normality assumptions and reaches the add-one floor
+    ``1 / (B + 1)`` when both legs carry signal. Percentile 95% intervals reuse ``pm``'s deterministic
+    subject-bootstrap stream (`SeedSequence(random_state).spawn(3)[1]`) with zero measurement-model refits.
+
+    Assumes linear structural relations on the extracted score blocks (nonlinear encoder/decoder maps enter
+    only through the measurement model that produced the scores).
+    """
+    if "nodes" not in pm or "scores" not in pm or "nuisance" not in pm:
+        raise ValueError("pm must be a path_model or path_model_from_scores result dict.")
+    nodes = list(pm["nodes"])
+    a_nm = _resolve_node(nodes, a, "a")
+    m_nm = _resolve_node(nodes, m, "m")
+    b_nm = _resolve_node(nodes, b, "b")
+    if len({a_nm, m_nm, b_nm}) < 3:
+        raise ValueError(f"a, m, and b must be three distinct nodes; got ({a_nm!r}, {m_nm!r}, {b_nm!r}).")
+
+    Z_all: Dict[str, np.ndarray] = pm["scores"]
+    N_all: np.ndarray = pm["nuisance"]
+    adj = pm["graph"]
+    directed = bool(pm["directed"])
+    conditioning = str(pm["conditioning"])
+    if conditioning == "parents":
+        cond = sorted((set(_parents(adj, m_nm, directed)) | set(_parents(adj, b_nm, directed)))
+                      - {a_nm, m_nm, b_nm, "consensus"})
+    else:
+        cond = []
+
+    req_nodes = [a_nm, m_nm, b_nm] + cond
+    has_nan = any(not np.isfinite(Z_all[u]).all() for u in req_nodes)
+    if has_nan:
+        obs_mask = np.ones(N_all.shape[0], dtype=bool)
+        for u in req_nodes:
+            obs_mask &= np.isfinite(Z_all[u]).all(axis=1)
+        obs_idx = np.flatnonzero(obs_mask)
+        Z_sub = {u: Z_all[u][obs_idx] for u in req_nodes}
+        N_use = N_all[obs_idx]
+    else:
+        Z_sub = {u: Z_all[u] for u in req_nodes}
+        N_use = N_all
+
+    Za, Zm, Zb = Z_sub[a_nm], Z_sub[m_nm], Z_sub[b_nm]
+    n_obs = int(Za.shape[0])
+    ka, km, kb = int(Za.shape[1]), int(Zm.shape[1]), int(Zb.shape[1])
+    S = np.column_stack([N_use] + [Z_sub[c] for c in cond])
+    Q = _orth(S)
+    q_cols = int(Q.shape[1])
+    if n_obs - q_cols <= ka + km + kb:
+        raise ValueError(
+            f"mediation ({a_nm} -> {m_nm} -> {b_nm}): {n_obs} complete rows cannot support "
+            f"{q_cols} conditioning columns and {ka} + {km} + {kb} score columns."
+        )
+
+    des_total = _edge_design(Z_sub, N_use, a_nm, b_nm, list(cond))
+    des_direct = _edge_design(Z_sub, N_use, a_nm, b_nm, sorted(set(cond) | {m_nm}))
+    des_am = _edge_design(Z_sub, N_use, a_nm, m_nm, list(cond))
+    des_mb = _edge_design(Z_sub, N_use, m_nm, b_nm, sorted(set(cond) | {a_nm}))
+
+    obs_total = _observed(des_total)
+    obs_direct = _observed(des_direct)
+    obs_am = _observed(des_am)
+    obs_mb = _observed(des_mb)
+
+    Ra = des_total["Ra"]
+    Rm = des_am["Rb"]
+    Rb = des_total["Rb"]
+    Qa, Ra_R = np.linalg.qr(Ra)
+    Em = Rm - Qa @ (Qa.T @ Rm)
+    Qm, Em_R = np.linalg.qr(Em)
+    Sbb = Rb.T @ Rb
+    r_eff = min(ka, kb)
+
+    # Exact OLS structural slopes on residualized blocks: B_total == B_direct + B_am @ B_mb
+    B_am = np.linalg.solve(Ra_R, Qa.T @ Rm)
+    B_tot = np.linalg.solve(Ra_R, Qa.T @ Rb)
+    B_mb = np.linalg.solve(Em_R, Qm.T @ Rb)
+    B_dir = np.linalg.solve(Ra_R, Qa.T @ (Rb - Rm @ B_mb))
+    B_ind = B_am @ B_mb
+
+    ind_pil = _indirect_pillai_np(Ra @ B_ind, Sbb, r_eff)
+    dir_pil = float(obs_direct["pillai"])
+    tot_pil = float(obs_total["pillai"])
+    am_pil = float(obs_am["pillai"])
+    mb_pil = float(obs_mb["pillai"])
+    denom_pm = ind_pil + dir_pil
+    prop_med = float(ind_pil / denom_pm) if denom_pm > 1e-12 else float("nan")
+
+    comps = _comp_index(ka, kb)
+    params = pm.get("parameters") or {}
+    B_sweeps = int(params.get("n_permutations", 0))
+    n_boot = int(params.get("n_bootstrap", 0))
+    seed = params.get("random_state", 0)
+    report_p = (pm.get("p_reason") is None) and (B_sweeps > 0)
+    evidence_label = (
+        str(pm["edges"]["null_rows"].iloc[0])
+        if isinstance(pm.get("edges"), pd.DataFrame) and len(pm["edges"]) and "null_rows" in pm["edges"].columns
+        else ("heldout-fixed" if pm.get("rows") == "heldout" else "train-fixed-unreported")
+    )
+
+    # ---- Intersection-union Freedman-Lane permutation test across H01 (a -/-> m) and H02 (m -/-> b | a)
+    ge_ind_1 = 0
+    ge_ind_2 = 0
+    ge_dir = 0
+    ge_tot = 0
+    ge_am = 0
+    ge_mb = 0
+    ge_comp_1 = np.zeros(len(comps), dtype=np.int64)
+    ge_comp_2 = np.zeros(len(comps), dtype=np.int64)
+    ge_comp_dir = np.zeros(len(comps), dtype=np.int64)
+    ge_comp_tot = np.zeros(len(comps), dtype=np.int64)
+
+    obs_comp_ind = np.array([B_ind[ia, ib] for ia, ib in comps], dtype=float) if comps else np.empty(0)
+    obs_comp_dir = np.array([B_dir[ia, ib] for ia, ib in comps], dtype=float) if comps else np.empty(0)
+    obs_comp_tot = np.array([B_tot[ia, ib] for ia, ib in comps], dtype=float) if comps else np.empty(0)
+
+    ss_med = np.random.SeedSequence(seed)
+    spawns = ss_med.spawn(4)
+    rng_perm_med = np.random.default_rng(spawns[3])
+    rng_boot = np.random.default_rng(spawns[1])
+
+    if B_sweeps > 0:
+        Q_t = torch.as_tensor(np.ascontiguousarray(Q))
+        QT_t = torch.as_tensor(np.ascontiguousarray(Q.T))
+        Ra_t = torch.as_tensor(np.ascontiguousarray(Ra))
+        Rm_t = torch.as_tensor(np.ascontiguousarray(Rm))
+        B_mb_t = torch.as_tensor(np.ascontiguousarray(B_mb))
+        B_am_t = torch.as_tensor(np.ascontiguousarray(B_am))
+        Sbb_t = torch.as_tensor(np.ascontiguousarray(Sbb))
+        Ra_B_am_t = torch.as_tensor(np.ascontiguousarray(Ra @ B_am))
+
+        Q_ma = des_mb["Q"]
+        Eb = des_mb["Rb"]
+        Pb_ma = Rb - Eb                                                 # Q_a Q_a^T R_b (orthogonal to Q)
+        Q_ma_T = torch.as_tensor(np.ascontiguousarray(Q_ma.T))
+        Eb_t = torch.as_tensor(np.ascontiguousarray(Eb))
+        Pb_ma_t = torch.as_tensor(np.ascontiguousarray(Pb_ma))
+        pinv_Em_T = torch.as_tensor(np.ascontiguousarray(np.linalg.solve(Em.T @ Em, Em.T)))  # (km, n)
+        eye_ka = torch.eye(ka, dtype=torch.float64)
+        ia_idx = [c[0] for c in comps]
+        ib_idx = [c[1] for c in comps]
+
+        base = np.tile(np.arange(n_obs), (min(_CHUNK, B_sweeps), 1))
+        for s0 in range(0, B_sweeps, _CHUNK):
+            c = min(_CHUNK, B_sweeps - s0)
+            p_a = torch.as_tensor(rng_perm_med.permuted(base[:c], axis=1))
+            p_m = torch.as_tensor(rng_perm_med.permuted(base[:c], axis=1))
+            p_b = torch.as_tensor(rng_perm_med.permuted(base[:c], axis=1))
+
+            # Direct, total, a->m, and m->b|a standard Freedman-Lane edge sweeps
+            st_dir = _stats_from_perm(des_direct, p_b)
+            st_tot = _stats_from_perm(des_total, p_b)
+            st_am = _stats_from_perm(des_am, p_m)
+            st_mb = _stats_from_perm(des_mb, p_b)
+            ge_dir += int((st_dir["pillai"].numpy() >= dir_pil).sum())
+            ge_tot += int((st_tot["pillai"].numpy() >= tot_pil).sum())
+            ge_am += int((st_am["pillai"].numpy() >= am_pil).sum())
+            ge_mb += int((st_mb["pillai"].numpy() >= mb_pil).sum())
+            if comps:
+                ge_comp_dir += (np.abs(st_dir["r"].numpy()) >= np.abs(obs_direct["r"])[None, :]).sum(0)
+                ge_comp_tot += (np.abs(st_tot["r"].numpy()) >= np.abs(obs_total["r"])[None, :]).sum(0)
+
+            # Sub-null 1: permute R_a wrt Q, re-estimate B_am*, project through observed B_mb
+            RaP = Ra_t[p_a]                                             # (c, n, ka)
+            if q_cols > 0:
+                proj_q = torch.einsum("kn,cna->cka", QT_t, RaP)
+                Ra_perp = RaP - torch.einsum("nk,cka->cna", Q_t, proj_q)
+            else:
+                Ra_perp = RaP
+            Saa_star = Ra_perp.transpose(-1, -2) @ Ra_perp + 1e-12 * eye_ka
+            Sam_star = torch.einsum("cna,nm->cam", Ra_perp, Rm_t)
+            B_am_star = torch.linalg.solve(Saa_star, Sam_star)          # (c, ka, km)
+            B_ind_1 = B_am_star @ B_mb_t                                # (c, ka, kb)
+            M1 = B_ind_1.transpose(-1, -2) @ Saa_star @ B_ind_1         # (c, kb, kb)
+            if kb == 1:
+                pil_1 = (M1[:, 0, 0] / Sbb_t[0, 0]).numpy()
+            else:
+                pil_1 = (torch.linalg.solve(Sbb_t.unsqueeze(0).expand_as(M1), M1)
+                         .diagonal(dim1=-2, dim2=-1).sum(-1) / r_eff).numpy()
+            ge_ind_1 += int((pil_1 >= ind_pil).sum())
+            if comps:
+                b1_np = B_ind_1.numpy()[:, ia_idx, ib_idx]
+                ge_comp_1 += (np.abs(b1_np) >= np.abs(obs_comp_ind)[None, :]).sum(0)
+
+            # Sub-null 2: permute E_b wrt Q_ma, re-estimate B_{mb.a}*, project from observed R_a B_am
+            EbP = Eb_t[p_b]                                             # (c, n, kb)
+            # Note: E_m is orthogonal to Q_ma, so E_m^T (I - Q_ma Q_ma^T) EbP == E_m^T EbP
+            B_mb_star = torch.einsum("mn,cnb->cmb", pinv_Em_T, EbP)     # (c, km, kb)
+            B_ind_2 = B_am_t @ B_mb_star                                # (c, ka, kb)
+            Y_ind_2 = torch.einsum("nm,cmb->cnb", Ra_B_am_t, B_mb_star) # (c, n, kb)
+            M2 = Y_ind_2.transpose(-1, -2) @ Y_ind_2                    # (c, kb, kb)
+            if q_cols > 0:
+                eb_q = torch.einsum("kn,cnb->ckb", QT_t, EbP)
+                Eb_q_perp = EbP - torch.einsum("nk,ckb->cnb", Q_t, eb_q)
+            else:
+                Eb_q_perp = EbP
+            Rb_star = Pb_ma_t.unsqueeze(0) + Eb_q_perp                  # (c, n, kb)
+            Sbb_star = Rb_star.transpose(-1, -2) @ Rb_star + 1e-12 * torch.eye(kb, dtype=torch.float64)
+            if kb == 1:
+                pil_2 = (M2[:, 0, 0] / Sbb_star[:, 0, 0]).numpy()
+            else:
+                pil_2 = (torch.linalg.solve(Sbb_star, M2)
+                         .diagonal(dim1=-2, dim2=-1).sum(-1) / r_eff).numpy()
+            ge_ind_2 += int((pil_2 >= ind_pil).sum())
+            if comps:
+                b2_np = B_ind_2.numpy()[:, ia_idx, ib_idx]
+                ge_comp_2 += (np.abs(b2_np) >= np.abs(obs_comp_ind)[None, :]).sum(0)
+
+    def _p_val(ge_cnt: Any) -> Optional[float]:
+        return float(_addone(ge_cnt, B_sweeps)) if report_p else None
+
+    if report_p:
+        p_ind_sub1 = float(_addone(ge_ind_1, B_sweeps))
+        p_ind_sub2 = float(_addone(ge_ind_2, B_sweeps))
+        p_indirect: Optional[float] = max(p_ind_sub1, p_ind_sub2)
+    else:
+        p_indirect = None
+    p_direct = _p_val(ge_dir)
+    p_total = _p_val(ge_tot)
+    p_a_to_m = _p_val(ge_am)
+    p_m_to_b = _p_val(ge_mb)
+
+    # ---- Deterministic subject bootstrap reusing SeedSequence(seed).spawn(3)[1] (zero refits)
+    ind_ci: Tuple[Optional[float], Optional[float]] = (None, None)
+    dir_ci: Tuple[Optional[float], Optional[float]] = (None, None)
+    tot_ci: Tuple[Optional[float], Optional[float]] = (None, None)
+    pm_ci: Tuple[Optional[float], Optional[float]] = (None, None)
+    comp_ind_boot: List[np.ndarray] = []
+    comp_dir_boot: List[np.ndarray] = []
+    comp_tot_boot: List[np.ndarray] = []
+
+    if n_boot > 0:
+        S_t = torch.as_tensor(np.ascontiguousarray(S))
+        X_cat = torch.as_tensor(np.ascontiguousarray(np.hstack([Za, Zm, Zb])))
+        eye_s = torch.eye(S_t.shape[-1], dtype=torch.float64)
+        eye_ka = torch.eye(ka, dtype=torch.float64)
+        eye_kam = torch.eye(ka + km, dtype=torch.float64)
+        eye_kb = torch.eye(kb, dtype=torch.float64)
+        ia_idx = [c[0] for c in comps]
+        ib_idx = [c[1] for c in comps]
+
+        ind_draws: List[np.ndarray] = []
+        dir_draws: List[np.ndarray] = []
+        tot_draws: List[np.ndarray] = []
+        for s0 in range(0, n_boot, _CHUNK):
+            c = min(_CHUNK, n_boot - s0)
+            idx = torch.as_tensor(rng_boot.integers(0, n_obs, (c, n_obs)))
+            R_all = _ridge_residualize_batch(S_t[idx], X_cat[idx], eye_s)
+            Ra_b = R_all[:, :, :ka]
+            Rm_b = R_all[:, :, ka:ka + km]
+            Rb_b = R_all[:, :, ka + km:]
+            Ram_b = R_all[:, :, :ka + km]
+
+            Saa_b = Ra_b.transpose(-1, -2) @ Ra_b
+            lam_a = _RIDGE * Saa_b.diagonal(dim1=-2, dim2=-1).sum(-1) / ka
+            Saa_reg = Saa_b + lam_a[:, None, None] * eye_ka
+            B_am_b = torch.linalg.solve(Saa_reg, Ra_b.transpose(-1, -2) @ Rm_b)
+            B_tot_b = torch.linalg.solve(Saa_reg, Ra_b.transpose(-1, -2) @ Rb_b)
+
+            Sam_m = Ram_b.transpose(-1, -2) @ Ram_b
+            lam_am = _RIDGE * Sam_m.diagonal(dim1=-2, dim2=-1).sum(-1) / (ka + km)
+            Sam_reg = Sam_m + lam_am[:, None, None] * eye_kam
+            B_joint_b = torch.linalg.solve(Sam_reg, Ram_b.transpose(-1, -2) @ Rb_b)
+            B_dir_b = B_joint_b[:, :ka, :]
+            B_mb_b = B_joint_b[:, ka:, :]
+            B_ind_b = B_am_b @ B_mb_b
+
+            Sbb_b = Rb_b.transpose(-1, -2) @ Rb_b + 1e-12 * eye_kb
+            Y_ind_b = Ra_b @ B_ind_b
+            M_ind_b = Y_ind_b.transpose(-1, -2) @ Y_ind_b
+            if kb == 1:
+                pil_ind_b = (M_ind_b[:, 0, 0] / Sbb_b[:, 0, 0]).numpy()
+            else:
+                pil_ind_b = (torch.linalg.solve(Sbb_b, M_ind_b)
+                             .diagonal(dim1=-2, dim2=-1).sum(-1) / r_eff).numpy()
+            ind_draws.append(pil_ind_b)
+
+            # Direct Pillai: residualize Ra_b and Rb_b wrt Rm_b
+            Rm_eye = torch.eye(km, dtype=torch.float64)
+            R_ab_m = _ridge_residualize_batch(Rm_b, torch.cat([Ra_b, Rb_b], dim=-1), Rm_eye)
+            Ra_m, Rb_m = R_ab_m[:, :, :ka], R_ab_m[:, :, ka:]
+            Saa_m = Ra_m.transpose(-1, -2) @ Ra_m + 1e-12 * eye_ka
+            Sbb_m = Rb_m.transpose(-1, -2) @ Rb_m + 1e-12 * eye_kb
+            pil_dir_b = _boot_edge_from_residuals(des_direct, Ra_m, Rb_m, Saa_m, Sbb_m)[0]["pillai"].numpy()
+            pil_tot_b = _boot_edge_from_residuals(des_total, Ra_b, Rb_b, Saa_reg, Sbb_b)[0]["pillai"].numpy()
+            dir_draws.append(pil_dir_b)
+            tot_draws.append(pil_tot_b)
+
+            if comps:
+                comp_ind_boot.append(B_ind_b.numpy()[:, ia_idx, ib_idx])
+                comp_dir_boot.append(B_dir_b.numpy()[:, ia_idx, ib_idx])
+                comp_tot_boot.append(B_tot_b.numpy()[:, ia_idx, ib_idx])
+
+        ind_cat = np.concatenate(ind_draws)
+        dir_cat = np.concatenate(dir_draws)
+        tot_cat = np.concatenate(tot_draws)
+        ind_lo, ind_hi = _pct(ind_cat)
+        dir_lo, dir_hi = _pct(dir_cat)
+        tot_lo, tot_hi = _pct(tot_cat)
+        ind_ci = (float(ind_lo), float(ind_hi))
+        dir_ci = (float(dir_lo), float(dir_hi))
+        tot_ci = (float(tot_lo), float(tot_hi))
+        denom_b = ind_cat + dir_cat
+        valid_b = denom_b > 1e-12
+        if np.any(valid_b):
+            pm_lo, pm_hi = _pct(ind_cat[valid_b] / denom_b[valid_b])
+            pm_ci = (float(pm_lo), float(pm_hi))
+
+    comp_rows = []
+    if comps:
+        c_ind_arr = np.concatenate(comp_ind_boot, axis=0) if comp_ind_boot else None
+        c_dir_arr = np.concatenate(comp_dir_boot, axis=0) if comp_dir_boot else None
+        c_tot_arr = np.concatenate(comp_tot_boot, axis=0) if comp_tot_boot else None
+        for j in range(len(comps)):
+            iv = float(obs_comp_ind[j])
+            dv = float(obs_comp_dir[j])
+            tv = float(obs_comp_tot[j])
+            abs_den = abs(iv) + abs(dv)
+            p_c_ind = (
+                max(float(_addone(ge_comp_1[j], B_sweeps)), float(_addone(ge_comp_2[j], B_sweeps)))
+                if report_p else None
+            )
+            row_c: Dict[str, Any] = {
+                "component": j,
+                "indirect": iv,
+                "direct": dv,
+                "total": tv,
+                "prop_mediated": (float(abs(iv) / abs_den) if abs_den > 1e-12 else float("nan")),
+                "p_indirect": p_c_ind,
+                "p_direct": _p_val(ge_comp_dir[j]),
+                "p_total": _p_val(ge_comp_tot[j]),
+                "indirect_ci_low": None,
+                "indirect_ci_high": None,
+                "direct_ci_low": None,
+                "direct_ci_high": None,
+                "total_ci_low": None,
+                "total_ci_high": None,
+                "null_rows": evidence_label,
+            }
+            if c_ind_arr is not None and c_dir_arr is not None and c_tot_arr is not None:
+                ilo, ihi = _pct(c_ind_arr[:, j])
+                dlo, dhi = _pct(c_dir_arr[:, j])
+                tlo, thi = _pct(c_tot_arr[:, j])
+                row_c["indirect_ci_low"], row_c["indirect_ci_high"] = float(ilo), float(ihi)
+                row_c["direct_ci_low"], row_c["direct_ci_high"] = float(dlo), float(dhi)
+                row_c["total_ci_low"], row_c["total_ci_high"] = float(tlo), float(thi)
+            comp_rows.append(row_c)
+    comp_df = pd.DataFrame(
+        comp_rows,
+        columns=[
+            "component", "indirect", "direct", "total", "prop_mediated",
+            "p_indirect", "p_direct", "p_total",
+            "indirect_ci_low", "indirect_ci_high",
+            "direct_ci_low", "direct_ci_high",
+            "total_ci_low", "total_ci_high", "null_rows",
+        ],
+    )
+
+    return {
+        "a": a_nm,
+        "m": m_nm,
+        "b": b_nm,
+        "conditioning_nodes": list(cond),
+        "n": n_obs,
+        "indirect_pillai": ind_pil,
+        "direct_pillai": dir_pil,
+        "total_pillai": tot_pil,
+        "a_to_m_pillai": am_pil,
+        "m_to_b_pillai": mb_pil,
+        "prop_mediated": prop_med,
+        "p_indirect": p_indirect,
+        "p_direct": p_direct,
+        "p_total": p_total,
+        "p_a_to_m": p_a_to_m,
+        "p_m_to_b": p_m_to_b,
+        "indirect_ci": ind_ci,
+        "direct_ci": dir_ci,
+        "total_ci": tot_ci,
+        "prop_mediated_ci": pm_ci,
+        "B_am": B_am,
+        "B_mb": B_mb,
+        "B_indirect": B_ind,
+        "B_direct": B_dir,
+        "B_total": B_tot,
+        "components": comp_df,
+        "null_rows": evidence_label,
+        "p_reason": pm.get("p_reason"),
+    }

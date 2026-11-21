@@ -726,12 +726,16 @@ cmp = pysimlr.compare_path_models(
 )
 print("Parsimonious best:", cmp["best"], "by rule:", cmp["best_rule"])
 
-# 4. Predict missing views across path edges
+# 4. Score-block mediation (indirect vs direct effect, zero refits)
+med = pysimlr.mediation(pm, "vol", "thk", "outcome")
+med["indirect_pillai"], med["p_indirect"], med["direct_pillai"], med["p_direct"], med["prop_mediated"]
+
+# 5. Predict missing views across path edges
 pred_path = pysimlr.predict_path(pm, views_with_missing, covariates=C_test, groups=sex_test)
 pred_path["scores"], pred_path["predicted_from"], pred_path["outcome_pred"]
 
-# 5. Visualize with publication-ready figures
-pysimlr.plot_path_model(pm)
+# 6. Visualize with publication-ready figures
+pysimlr.plot_path_model(pm, mediation=med)
 pysimlr.plot_edge_matrix(pm, what="r")
 pysimlr.plot_path_comparison(cmp)
 pysimlr.plot_edge_null(pm)
@@ -821,6 +825,35 @@ nodes):
   - Repeated train/test splits ($n_{\text{splits}} = 5$).
   - Evaluates models fitted with `topology="graph"` under their own graph against the complete graph,
     reporting held-out log-likelihood, OOS coupling, OOS reconstruction $R^2$, and outcome $R^2$.
+  - **Nonlinear fits (`lend`, `ned`, `ned_shared_private`, `flow_v`, `flow_simr`):** Always prefer
+    training-topology refit mode (`method=..., k=..., views=...`) over fixed-measurement structural mode
+    when comparing candidate graphs on deep or normalizing-flow fits. Because a nonlinear fit trained on
+    the complete graph couples views across all pairs during representation learning, fixed-measurement
+    linear score regressions systematically favor denser graphs: on ADNI-MCI (`docs/audit/evidence/path_model/WP4_report.md`,
+    5 splits), fixed structural mode favored `complete` on `lend` in 4/5 splits (mean $\Delta = -30.41$,
+    $\text{SE} = 13.72$ against `star on T1Hier_thk`), whereas `simlr` favored `star on T1Hier_thk` in
+    4/5 splits by raw log-likelihood (mean $\Delta = +7.40$) and 5/5 by F1 parsimony. Passing a `"deep"`
+    or `"flow"` `result` in fixed structural mode emits a `RuntimeWarning` pointing to `method=` / `k=`.
+
+**Score-block mediation (`pysimlr.mediation`).**
+Given a `path_model` or `path_model_from_scores` result `pm`, `pysimlr.mediation(pm, a, m, b)` decomposes
+the linear structural pathway $a \to m \to b$ on the residualized score blocks $R_a, R_m, R_b$ (orthogonalized
+against nuisance $N$ and, under `conditioning="parents"`, any other graph neighbors of $m$ or $b$):
+- **Exact multivariate decomposition:** $R_m = R_a B_{am} + E_m$ and $R_b = R_a B_{\text{direct}} + R_m B_{mb} + E_b$
+  satisfy $B_{\text{total}} = B_{\text{direct}} + B_{\text{indirect}}$ with $B_{\text{indirect}} = B_{am} B_{mb}$.
+- **Rotation-invariant omnibus & per-component metrics:** Reports `indirect_pillai`
+  ($\operatorname{tr}(S_{bb}^{-1} (R_a B_{\text{indirect}})^\top (R_a B_{\text{indirect}})) / \min(k_a, k_b)$),
+  `direct_pillai` ($a - b \mid S, m$), `total_pillai` ($a - b \mid S$), `prop_mediated`, per-component
+  indirect/direct/total slopes (`components`), and 95% subject-bootstrap CIs reusing `pm`'s bootstrap stream
+  with zero measurement-model refits.
+- **Composite-null Freedman–Lane test:** Evaluates `indirect_pillai` under both sub-nulls of
+  $H_0: B_{am} = 0 \cup B_{mb \cdot a} = 0$ (permuting $a$'s residual wrt $S$ with $B_{mb\cdot a}$ fixed, and
+  permuting $b$'s residual wrt $[S, a]$ with $B_{am}$ fixed) and reports the intersection–union add-one
+  $p$-value `p_indirect = max(p_sub1, p_sub2)`.
+- **Linear-structural assumption:** `mediation` tests linear structural equations on the extracted score
+  blocks $Z_a, Z_m, Z_b$. Even when scores come from a deep or flow measurement model, non-linearities are
+  confined to the view encoders/decoders; unmodeled non-linear interactions between latent blocks or F2
+  measurement-error attenuation in $\hat{Z}_m$ can leave residual direct association (`direct_pillai > 0`).
 
 **Prediction along path edges (`predict_path`).**
 Given a fitted `path_model` result and new subject data with missing views (`None`):
@@ -863,10 +896,12 @@ Given a fitted `path_model` result and new subject data with missing views (`Non
    Otherwise, evaluate the fixed-model null strictly on held-out rows (`rows="heldout"`), where score
    projections are genuine out-of-sample representations.
 4. **Worker processes (`n_jobs > 1`):** the refits run in spawned worker processes. Call `path_model`
-   (and `compare_path_models` with `method=`) with `n_jobs > 1` from a script under
-   `if __name__ == "__main__":` or from an importable module. From the interactive prompt or a notebook
-   cell the workers cannot import the caller and the pool fails with `BrokenProcessPool`; use
-   `n_jobs=1` there. Results do not depend on `n_jobs`.
+   (and `loading_inference`, `latent_stability`, `bagged_fit`, `multistart_fit`, `feature_relevance`,
+   `compare_observed_path_models`, or `simlr_perm`) with `n_jobs > 1` from a script under
+   `if __name__ == "__main__":` or from an importable module. When `sys.modules["__main__"]` has no
+   `__file__` (interactive prompt or notebook cell), `pysimlr` raises a `ValueError` immediately
+   instructing you to run from a script or pass `n_jobs=1` rather than failing inside spawned workers
+   with `BrokenProcessPool`. Results do not depend on `n_jobs`.
 
 **Evidence and calibration.**
 - **Null calibration (fast and slow suites):**
@@ -1206,7 +1241,7 @@ a planted four-view study.
 | `plot_benchmark_uncertainty(df, baseline=)` | per-method score with a bootstrap CI over splits; paired difference against a baseline | long DataFrame (method, split, score) |
 | `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` |
 | `plot_predictions(y, yhat)` | predicted against observed | arrays |
-| `plot_path_model(pm, component=)` | path model diagram: views on a circle, edge widths by Pillai (or \|r\| when `component=j` with sign color), significance, graph-fit status | `path_model` |
+| `plot_path_model(pm, component=, mediation=)` | path model diagram: views on a circle, edge widths by Pillai (or \|r\| when `component=j` with sign color), optional `mediation` indirect-pathway callouts, significance, graph-fit status | `path_model` (+ `mediation`) |
 | `plot_edge_matrix(pm, what="r")` | edge × component heatmap with BH q-value hatching and Pillai column | `path_model` |
 | `plot_path_comparison(cmp)` | forest plot of held-out log-likelihood deltas vs top graph, with fraction passing panel | `compare_path_models` |
 | `plot_edge_null(pm, edges=)` | observed edge statistic against its permutation null distribution | `path_model` |

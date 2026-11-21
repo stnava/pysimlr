@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.9.36">
+<meta name="generator" content="quarto-1.9.38">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
@@ -97,7 +97,7 @@ div.csl-indent {
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="site_libs/quarto-html/anchor.min.js"></script>
 <link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
 <link href="site_libs/bootstrap/bootstrap-5ccb035bea26c1e21f80f44cf7c27909.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
@@ -232,7 +232,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -244,7 +244,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_flow_simr_v.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -270,6 +270,7 @@ window.Quarto = {
   <li><a href="#replication-structure-and-the-permutation-resolution-floor" id="toc-replication-structure-and-the-permutation-resolution-floor" class="nav-link" data-scroll-target="#replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</a>
   <ul class="collapse">
   <li><a href="#block-level-sign-flip-permutation-floor" id="toc-block-level-sign-flip-permutation-floor" class="nav-link" data-scroll-target="#block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</a></li>
+  <li><a href="#v0.43.1-replication-designs-and-provenance-ledger" id="toc-v0.43.1-replication-designs-and-provenance-ledger" class="nav-link" data-scroll-target="#v0.43.1-replication-designs-and-provenance-ledger"><span class="header-section-number">D.3.2</span> <code>v0.43.1</code> Replication Designs and Provenance Ledger</a></li>
   </ul></li>
   <li><a href="#software-environment" id="toc-software-environment" class="nav-link" data-scroll-target="#software-environment">Software Environment</a></li>
   </ul>
@@ -280,7 +281,7 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_reproducibility.html"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title"><span id="sec-reproducibility" class="quarto-section-identifier">Appendix D — Reproducibility and Statistical Methodology</span></h1>
+<h1 class="title"><span id="sec-app-repro" class="quarto-section-identifier">Appendix D — Reproducibility and Statistical Methodology</span></h1>
 </div>
 
 
@@ -326,35 +327,47 @@ window.Quarto = {
 </header>
 
 
-<p>This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.</p>
+<p>This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript (<code>pysimlr v0.43.1</code>).</p>
 <section id="building-the-manuscript" class="level2" data-number="D.1">
 <h2 data-number="D.1" class="anchored" data-anchor-id="building-the-manuscript"><span class="header-section-number">D.1</span> Building the Manuscript</h2>
-<p>The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in <code>paper/results_cache/</code>, each written by a committed script (<code>scripts/run_deep_benchmark.py</code>, <code>scripts/run_adni_mci_grid_sweep.py</code>, <code>scripts/paper_adni_ablations.py</code>, <code>scripts/paper_brca_loadings.py</code>) and accompanied by a provenance file. Every number in the text is computed from these caches at build time (<code>paper/paper_numbers.py</code>), so the manuscript is rebuilt deterministically from them:</p>
+<p>The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in <code>paper/results_cache/</code> and <code>docs/audit/evidence/</code>, each written by a committed script under <code>scripts/</code> and accompanied by provenance metadata. Every number in the text is computed from these caches at build time (<code>paper/paper_numbers.py</code>), so the manuscript is rebuilt deterministically from them:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/stnava/pysimlr.git</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> pysimlr</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render paper</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>All eight <code>v0.43.1</code> compute scripts expose a <code>--smoke</code> flag (<code>counts=2</code>, <code>&lt; 10</code> s wall-clock runtime, non-destructive temporary output paths when <code>--out</code> / <code>--output</code> / <code>--out-dir</code> is omitted, and <code>"smoke": true</code> recorded in the provenance JSON):</p>
+<ul>
+<li><code>scripts/run_deep_benchmark.py</code> (<code>--seeds 3</code>, <code>--workers 8</code>, <code>--iterations N</code>, <code>--epochs N</code>, <code>--suite</code>, <code>--consistency</code>, <code>--out CSV</code>, <code>--out-dir DIR</code>, <code>--smoke</code>): writes <code>deep_ranking_benchmark.csv</code> and its sparsity splits (<code>deep_ranking_benchmark_q_none.csv</code>, <code>deep_ranking_benchmark_q05.csv</code>, and <code>deep_ranking_benchmark_q08.csv</code>), along with <code>operating_points_05_08_benchmark.csv</code>, <code>provenance_deep_benchmark.json</code>, and <code>deep_default_consistency.csv</code> in <code>paper/results_cache/</code>.</li>
+<li><code>scripts/run_real_data_v043.py</code> (<code>--out DIR</code>, <code>--workers 8</code>, <code>--n-seeds 3</code>, <code>--iters N</code>, <code>--reuse-existing</code>, <code>--skip-part-c</code>, <code>--part-b-only</code>, <code>--smoke</code>): writes <code>part_a_simlr_v043_raw.csv</code> and <code>part_a_comparison_summary.csv</code>, along with <code>part_b_uniform_shrunk_raw.csv</code>, <code>part_b_uniform_shrunk_summary.csv</code>, and the provenance metadata <code>provenance_v043_real_data.json</code> in <code>paper/results_cache/</code>.</li>
+<li><code>scripts/benchmark_synthetic_theorems.py</code> (<code>--n-seeds 20</code>, <code>--n-jobs 8</code>, <code>--output JSON</code>, <code>--smoke</code>): writes <code>v043_synthetic_theorems.json</code> in <code>paper/results_cache/</code>.</li>
+<li><code>scripts/paper_adni_ablations.py</code> (<code>--out DIR</code>, <code>--only {controls, k, loadings, quantile, rowmean, w}</code>, <code>--workers 8</code>, <code>--smoke</code>): writes the ablation tables <code>ablation_w_sweep.csv</code> and <code>ablation_k_sparsity_sweep.csv</code>, plus the quantile table <code>ablation_quantile_sparseness.csv</code> and the row-mean table <code>ablation_rowmean_ica_positivity.csv</code>, as well as <code>adni_mci_axis_alignment_controls.csv</code>, <code>adni_mci_feature_loadings.json</code>, and <code>provenance_adni_ablations.json</code> in <code>paper/results_cache/</code>.</li>
+<li><code>scripts/paper_adni_attribution.py</code> (<code>--out JSON</code>, <code>--smoke</code>): writes <code>adni_attribution.json</code> in <code>paper/results_cache/</code>.</li>
+<li><code>scripts/adni_rank_selection.py</code> (<code>--out CSV</code>, <code>--ks 2 3 4 5</code>, <code>--n-subsamples 20</code>, <code>--n-baseline 3</code>, <code>--iterations N</code>, <code>--n-jobs 8</code>, <code>--smoke</code>) produces <code>docs/audit/evidence/adni_rank_selection.csv</code> and <code>adni_rank_selection_provenance.json</code>.</li>
+<li><code>scripts/paper_brca_loadings.py</code> (<code>--out DIR</code>, <code>--n-subsamples 100</code>, <code>--n-permutations 20</code>, <code>--iterations N</code>, <code>--n-jobs 8</code>, <code>--smoke</code>) produces <code>brca_er_loadings.json</code>.</li>
+<li><code>scripts/paper_nsa_v_loadings.py</code> (<code>--out DIR</code>, <code>--n-subsamples 50</code>, <code>--n-permutations 20</code>, <code>--iterations N</code>, <code>--n-jobs 8</code>, <code>--smoke</code>) produces <code>nsa_v_loadings.json</code>.</li>
+</ul>
+<p>The single-seed <code>ADNI-MCI</code> hyperparameter sweep (<code>scripts/run_adni_mci_grid_sweep.py</code>) is preserved unchanged (<code>adni_mci_1214_grid_sweep.csv</code>, 1,025 of 1,025 configurations completed; provenance recorded in <code>provenance_adni_mci_grid_sweep.json</code>).</p>
 </section>
 <section id="non-parametric-benchmark-engine-and-optimization-stack" class="level2" data-number="D.2">
 <h2 data-number="D.2" class="anchored" data-anchor-id="non-parametric-benchmark-engine-and-optimization-stack"><span class="header-section-number">D.2</span> Non-Parametric Benchmark Engine and Optimization Stack</h2>
 <p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by <code>src/pysimlr/benchmarks/deep_ranking.py</code>:</p>
 <ul>
 <li>Non-parametric Friedman omnibus test <span class="citation" data-cites="friedman1937use">(<a href="#ref-friedman1937use" role="doc-biblioref">Friedman 1937</a>)</span> and Iman–Davenport <span class="math inline">\(F\)</span>-distribution extension <span class="citation" data-cites="Demsar2006 Iman1980">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>; <a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span>.</li>
-<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD =\)</span> 2.600 at <span class="math inline">\(\alpha = 0.05\)</span> for <span class="math inline">\(k =\)</span> 7, <span class="math inline">\(B = 12\)</span>) <span class="citation" data-cites="Nemenyi1963 Demsar2006">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>.</li>
+<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD =\)</span> 2.600 at <span class="math inline">\(\alpha = 0.05\)</span> for <span class="math inline">\(k =\)</span> 7, <span class="math inline">\(B =\)</span> 12) <span class="citation" data-cites="Nemenyi1963 Demsar2006">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>.</li>
 <li>Pairwise Wilcoxon signed-rank tests <span class="citation" data-cites="Wilcoxon1945">(<a href="#ref-Wilcoxon1945" role="doc-biblioref">Wilcoxon 1945</a>)</span> with Holm–Bonferroni step-down adjustments <span class="citation" data-cites="Holm1979">(<a href="#ref-Holm1979" role="doc-biblioref">Holm 1979</a>)</span>.</li>
 <li>Adaptive first-order (<code>Adam</code>, <code>AdamW</code> <span class="citation" data-cites="kingma2014adam loshchilov2019">(<a href="#ref-kingma2014adam" role="doc-biblioref">Kingma and Ba 2015</a>; <a href="#ref-loshchilov2019" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>) and Riemannian manifold solvers implemented on top of PyTorch <span class="citation" data-cites="paszke2019">(<a href="#ref-paszke2019" role="doc-biblioref"><span class="nocase">Paszke et al.</span> 2019</a>)</span>, NumPy <span class="citation" data-cites="harris2020">(<a href="#ref-harris2020" role="doc-biblioref"><span class="nocase">Harris et al.</span> 2020</a>)</span>, SciPy <span class="citation" data-cites="virtanen2020">(<a href="#ref-virtanen2020" role="doc-biblioref"><span class="nocase">Virtanen et al.</span> 2020</a>)</span>, and Scikit-Learn <span class="citation" data-cites="pedregosa2011">(<a href="#ref-pedregosa2011" role="doc-biblioref"><span class="nocase">Pedregosa et al.</span> 2011</a>)</span>.</li>
 <li>Benchmark cohorts span clinical cardiology (<code>Heart</code> <span class="citation" data-cites="detrano1989international">(<a href="#ref-detrano1989international" role="doc-biblioref">Detrano et al. 1989</a>)</span>), metabolic progression (<code>Diabetes</code> <span class="citation" data-cites="efron2004least">(<a href="#ref-efron2004least" role="doc-biblioref">Efron et al. 2004</a>)</span>), handwritten pattern descriptors (<code>mfeat</code> <span class="citation" data-cites="vanbreukelen2006">(<a href="#ref-vanbreukelen2006" role="doc-biblioref">Breukelen et al. 1998</a>)</span>), transcriptomic/multi-omic cancer benchmarks <span class="citation" data-cites="golub1999molecular tcga2012breast tcga2013kirc wang2014 tenenhaus2011 tenenhaus2014 zhao2017 abdi2013">(<a href="#ref-golub1999molecular" role="doc-biblioref"><span class="nocase">Golub et al.</span> 1999</a>; <a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>; <a href="#ref-wang2014" role="doc-biblioref">Wang et al. 2014</a>; <a href="#ref-tenenhaus2011" role="doc-biblioref">Tenenhaus and Tenenhaus 2011</a>; <a href="#ref-tenenhaus2014" role="doc-biblioref">Tenenhaus et al. 2014</a>; <a href="#ref-zhao2017" role="doc-biblioref">Zhao et al. 2017</a>; <a href="#ref-abdi2013" role="doc-biblioref">Abdi et al. 2013</a>)</span>, and Alzheimer’s neuroimaging (<code>ADNI-MCI</code> <span class="citation" data-cites="mueller2005 jack2008alzheimer ADNI">(<a href="#ref-mueller2005" role="doc-biblioref">Mueller et al. 2005</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>; <a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>)</span>).</li>
 </ul>
-<p>The test suite <code>tests/test_deep_ranking_stats.py</code> verifies the statistical calculations:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> tests/test_deep_ranking_stats.py <span class="at">-v</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The test suites <code>tests/test_deep_ranking_stats.py</code> and <code>tests/test_implementation_standards.py</code> verify the statistical calculations and package standards:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> tests/test_deep_ranking_stats.py tests/test_implementation_standards.py <span class="at">-v</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="replication-structure-and-the-permutation-resolution-floor" class="level2" data-number="D.3">
 <h2 data-number="D.3" class="anchored" data-anchor-id="replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</h2>
-<p>The deep ranking benchmark evaluates seven architectures across 12 multi-view datasets across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (252 fits at <span class="math inline">\(q = 0.5\)</span>, 756 across the three sparsity levels, and 189 paired non-negative reruns on three cohorts):</p>
+<p>The deep ranking benchmark evaluates seven architectures across 12 multi-view datasets and <span class="math inline">\(N_{\text{seeds}} =\)</span> 3 independent random seeds (252 fits at <span class="math inline">\(q = 0.5\)</span>, 756 across the three sparsity levels, and 189 paired non-negative reruns on three cohorts):</p>
 <div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ranking_benchmark.csv</code>). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.
+Table&nbsp;D.1: Replication structure of the multi-dataset benchmark (<code>deep_ranking_benchmark.csv</code>). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.
 </figcaption>
 <div aria-describedby="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -383,7 +396,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Diabetes</td>
@@ -391,7 +404,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Heart</td>
@@ -399,7 +412,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Linear</td>
@@ -407,7 +420,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
@@ -415,7 +428,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NonnegParts</td>
@@ -423,7 +436,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NonnegPartsWeak</td>
@@ -431,7 +444,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Polynomial</td>
@@ -439,7 +452,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Shared+Private</td>
@@ -447,7 +460,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Sine</td>
@@ -455,7 +468,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">TCGA-KIRC</td>
@@ -463,7 +476,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">mfeat</td>
@@ -471,7 +484,7 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">7</td>
 <td style="text-align: right;">21</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.2500</td>
 </tr>
 </tbody>
 </table>
@@ -480,10 +493,18 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 </div>
 <section id="block-level-sign-flip-permutation-floor" class="level3" data-number="D.3.1">
 <h3 data-number="D.3.1" class="anchored" data-anchor-id="block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</h3>
-<p>In paired comparisons across <span class="math inline">\(B = 12\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 12\)</span> blocks consists of <span class="math inline">\(2^B = 4,096\)</span> sign assignments:</p>
+<p>In paired comparisons across <span class="math inline">\(B =\)</span> 12 independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} =\)</span> 3 replicates <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B =\)</span> 12 blocks consists of <span class="math inline">\(2^B = 4,096\)</span> sign assignments:</p>
 <p><span class="math display">\[
 p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488
 \]</span></p>
+</section>
+<section id="v0.43.1-replication-designs-and-provenance-ledger" class="level3" data-number="D.3.2">
+<h3 data-number="D.3.2" class="anchored" data-anchor-id="v0.43.1-replication-designs-and-provenance-ledger"><span class="header-section-number">D.3.2</span> <code>v0.43.1</code> Replication Designs and Provenance Ledger</h3>
+<ul>
+<li><strong>Synthetic Propositions and Design A/B Benchmark (<code>v043_synthetic_theorems.json</code>):</strong> <code>scripts/benchmark_synthetic_theorems.py</code> evaluates 20 random seeds (<span class="math inline">\(N_{\text{train}} =\)</span> 60, <span class="math inline">\(N_{\text{test}} =\)</span> 200, view dimensions (80, 100, 60, 160)) with paired two-sided Wilcoxon signed-rank tests across arms.</li>
+<li><strong>Six-Cohort Real-Data Revisit (<code>part_a_*</code>, <code>part_b_*</code>):</strong> <code>scripts/run_real_data_v043.py</code> evaluates Part A (108 <code>simlr</code> fits across 6 real cohorts <span class="math inline">\(\times\)</span> 3 seeds, yielding 81 matched comparisons across 27 pre-<code>v0.43</code> cells in <code>part_a_simlr_v043_raw.csv</code> and <code>part_a_comparison_summary.csv</code>) and Part B (96 <code>fit_uniform_shrunk</code> fits: 48 conical and 48 radial-convex across 6 cohorts <span class="math inline">\(\times k \in \{1, 2, 3\} \times\)</span> 3 seeds in <code>part_b_uniform_shrunk_raw.csv</code> and <code>part_b_uniform_shrunk_summary.csv</code>).</li>
+<li><strong>Audit Evidence and Provenance Ledger (<code>docs/audit/evidence/</code>):</strong> Supporting design evidence tables record 20-subsample rank selection (<code>adni_rank_selection.csv</code>), two-stage default selection (<code>default_selection_stage1.csv</code>, 1,664 fits; <code>default_selection_stage2.csv</code>, 180 fits across 20 cells), scale-free view weighting (<code>view_weighting_acc.csv</code>), collapse threshold selection (<code>collapse_threshold_selection.csv</code>), unpenalized deep collapse (<code>deep_collapse_diagnosis.csv</code>), and deep convergence consistency (<code>deep_default_consistency.csv</code>, 18 runs per family). All <code>v0.43.1</code> benchmark and audit caches were generated on <code>2026-11-19</code> (<code>Darwin arm64</code>, <code>torch 2.13.0</code>, <code>smoke=false</code>), while the 1,025-configuration <code>ADNI-MCI</code> grid sweep (<code>adni_mci_1214_grid_sweep.csv</code>) is preserved from <code>2026-11-05</code> (<code>pysimlr 0.20.0</code>, <code>provenance_adni_mci_grid_sweep.json</code>, <code>n_failed=0</code>).</li>
+</ul>
 </section>
 </section>
 <section id="software-environment" class="level2 unnumbered">
@@ -503,32 +524,36 @@ Table&nbsp;D.2: Software environment and runtime dependencies under which the be
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;">Python</td>
-<td style="text-align: left;">3.12.12</td>
+<td style="text-align: left;">PySiMLR</td>
+<td style="text-align: left;">0.43.1</td>
 </tr>
 <tr class="even">
+<td style="text-align: left;">Python</td>
+<td style="text-align: left;">3.13.2</td>
+</tr>
+<tr class="odd">
 <td style="text-align: left;">PyTorch</td>
 <td style="text-align: left;">2.13.0</td>
 </tr>
-<tr class="odd">
-<td style="text-align: left;">NumPy</td>
-<td style="text-align: left;">2.5.4</td>
-</tr>
 <tr class="even">
+<td style="text-align: left;">NumPy</td>
+<td style="text-align: left;">2.3.5</td>
+</tr>
+<tr class="odd">
 <td style="text-align: left;">SciPy</td>
 <td style="text-align: left;">1.18.1</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Scikit-Learn</td>
-<td style="text-align: left;">1.9.0</td>
+<td style="text-align: left;">1.8.0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Pandas</td>
+<td style="text-align: left;">3.0.1</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">Pandas</td>
-<td style="text-align: left;">3.0.3</td>
-</tr>
-<tr class="odd">
 <td style="text-align: left;">Matplotlib</td>
-<td style="text-align: left;">3.11.0</td>
+<td style="text-align: left;">3.10.8</td>
 </tr>
 </tbody>
 </table>
@@ -1022,8 +1047,8 @@ Zhao, Jing, Xijiong Xie, Xin Xu, and Shiliang Sun. 2017. <span>“Multi-View Lea
   </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="./appendix_flow_simr_v.html" class="pagination-link" aria-label="Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span>
+      <a href="./appendix_flow_simr_v.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">

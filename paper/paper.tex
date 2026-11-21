@@ -250,7 +250,7 @@
 \title{Deep SiMLR: Auditable Multi-Modal Integration for Biomedical
 Discovery}
 \author{Brian B. Avants \and Nicholas J. Tustison \and James R. Stone}
-\date{2026-11-19}
+\date{2026-11-20}
 \begin{document}
 \maketitle
 
@@ -4385,15 +4385,24 @@ Forward / Backward Pass & \(\mathcal{O}(N p_m k)\) &
 
 \texttt{Flow-SiMR-V} prepends a linear entrypoint projection matrix
 \(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\) to each view's invertible
-Real-valued Non-Volume Preserving (\texttt{RealNVP}) normalizing flow
-(Dinh et al. 2017; Rezende and Mohamed 2015; Kingma and Dhariwal 2018;
-Papamakarios et al. 2021; Kobyzev et al. 2020). This architecture
-provides a linear bottleneck at the input boundary while retaining
-bijective density mapping, conditional cross-view inference, and latent
-trajectory interpolation on the \(k\)-dimensional subspace. The
-normalizing flows are implemented in PyTorch ({Paszke et al.} 2019),
-adapting coupling structures from the Latent-Aligned Multiview
-Normalizing Flows (\texttt{LAMNrFlows}) framework
+normalizing flow (Dinh et al. 2017; Durkan et al. 2019; Rezende and
+Mohamed 2015; Kingma and Dhariwal 2018; Papamakarios et al. 2021;
+Kobyzev et al. 2020). This architecture provides a linear bottleneck at
+the input boundary while retaining bijective density mapping,
+conditional cross-view inference, and latent trajectory interpolation on
+the \(k\)-dimensional subspace. Under \texttt{flow\_type="auto"}
+(default), \texttt{Flow-SiMR-V} dispatches to a coordinate-wise strictly
+monotone rational-quadratic spline flow with positive data-dependent
+ActNorm (\texttt{ActNormElementwiseRQSplineFlow} (Durkan et al. 2019))
+when \(k = 1\)---where RealNVP has an empty conditioner partition
+(\texttt{split\_dim\ =\ 0}) and reduces to a global affine map---and to
+Real-valued Non-Volume Preserving (\texttt{RealNVP}) affine coupling
+layers (Dinh et al. 2017) when \(k \ge 2\), with optional post-warmup
+Hadamard Principal Component Flow (\texttt{pcf\_alpha}) Jacobian
+row-orthogonality regularization (Cunningham et al. 2022). The flows are
+implemented in PyTorch ({Paszke et al.} 2019), adapting coupling
+structures from the Latent-Aligned Multiview Normalizing Flows
+(\texttt{LAMNrFlows}) framework
 (\href{https://github.com/ntustison/LAMNrFlows}{ntustison/LAMNrFlows}).
 
 \subsection{Mathematical Formulation}\label{mathematical-formulation}
@@ -4414,8 +4423,10 @@ For each input modality \(\mathbf{X}_m \in \mathbb{R}^{n \times p_m}\)
   \textbf{Low-dimensional bijective normalizing flow:} \[
   \mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}}),
   \] where \(f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k\) is a
-  composition of RealNVP affine coupling layers (Dinh et al. 2017) with
-  exact inverse \(f_{\text{flow}, m}^{-1}\) and tractable
+  monotone rational-quadratic spline bijection (Durkan et al. 2019) at
+  \(k = 1\) (or when \texttt{flow\_type="spline1d"}) and a composition
+  of RealNVP affine coupling layers (Dinh et al. 2017) at \(k \ge 2\),
+  with exact inverse \(f_{\text{flow}, m}^{-1}\) and tractable
   log-determinant
   \(\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|\).
 \item
@@ -4431,8 +4442,13 @@ Optimization}\label{rectangular-olee-prior-collapse-and-detached-prior-optimizat
 
 A structural distinction separates square ambient-space normalizing
 flows (\texttt{Flow-SiMR}, where
-\(f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}\)) from
-rectangular OLEE-bottlenecked flows (\texttt{Flow-SiMR-V}, where
+\(f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}\), stabilized
+with bounded coupling scales \texttt{scale\_bound\ =\ 0.5}, optional
+Probabilistic PCA base distributions
+\texttt{base\_distribution="gaussian\_pca"}, and exact
+likelihood-preserving post-flow shared \(\mathrm{O}(k)\) Varimax gauge
+rotations \texttt{varimax=True} (Kaiser 1958)) from rectangular
+OLEE-bottlenecked flows (\texttt{Flow-SiMR-V}, where
 \(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\) with \(k \ll p_m\)
 precedes \(f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k\)).
 
@@ -4499,11 +4515,12 @@ Serums)}\label{conditional-clinical-imputation-true-vs.-imputed-serums}
 
 Because \texttt{Flow-SiMR-V} preserves invertibility on the
 \(k\)-dimensional bottleneck space, it supports conditional cross-view
-inference via the Gaussian Schur complement in latent space. In
+inference via the Gaussian Schur complement in post-flow latent space
+(\texttt{pysimlr.predict\_conditional\_view}). In
 Figure~\ref{fig-flow-imputation}, we train \texttt{Flow-SiMR-V} on the
-Diabetes dataset under a 70/30 split, withhold the blood serum view on
-test patients, and evaluate serum triglyceride (\texttt{s5}) imputation
-from vitals alone via \texttt{pysimlr.plot\_predictions}.
+Diabetes dataset under a leak-free 70/30 split, withhold the blood serum
+view on test patients, and evaluate serum triglyceride (\texttt{s5})
+imputation from vitals alone via \texttt{pysimlr.plot\_predictions}.
 
 \begin{figure}[htbp]
 
@@ -4514,12 +4531,12 @@ from vitals alone via \texttt{pysimlr.plot\_predictions}.
 }
 
 \caption{\label{fig-flow-imputation}Flow-SiMR-V conditional
-Schur-complement decoding imputes held-out serum triglycerides
-(\texttt{s5}) from systemic vitals alone
-(\texttt{pysimlr.plot\_predictions}). Points show observed versus
-imputed standardized \texttt{s5} on the 30\% held-out Diabetes test
-split (\(k = 2\)), with the solid line marking identity and the header
-reporting test correlation and error.}
+Schur-complement decoding (\texttt{pysimlr.predict\_conditional\_view})
+imputes held-out serum triglycerides (\texttt{s5}) from systemic vitals
+alone (\texttt{pysimlr.plot\_predictions}). Points show observed versus
+imputed training-standardized \texttt{s5} on the 30\% held-out Diabetes
+test split (\(k = 2\)), with the solid line marking identity and the
+header reporting test correlation and error.}
 
 \end{figure}%
 
@@ -5305,6 +5322,11 @@ Structural {MRI}: A Comparison of Ten Methods Using the {ADNI}
 Database.''} \emph{NeuroImage} 56 (2): 766--81.
 \url{https://doi.org/10.1016/j.neuroimage.2010.06.013}.
 
+\bibitem[\citeproctext]{ref-cunningham2022principal}
+Cunningham, Edmond, Adam D. Cobb, and Susmit Jha. 2022. {``Principal
+Component Flows.''} \emph{Proceedings of the 39th International
+Conference on Machine Learning}, 4492--519.
+
 \bibitem[\citeproctext]{ref-curtis2012}
 {Curtis, Christina, Sohrab P. Shah, Suet-Feung Chin, et al.} 2012.
 {``The Genomic and Transcriptomic Architecture of 2,000 Breast Tumours
@@ -5376,6 +5398,11 @@ Duchi, John, Shai Shalev-Shwartz, Yoram Singer, and Tushar Chandra.
 High Dimensions.''} \emph{Proceedings of the 25th International
 Conference on Machine Learning}, 272--79.
 \url{https://doi.org/10.1145/1390156.1390191}.
+
+\bibitem[\citeproctext]{ref-durkan2019neural}
+Durkan, Conor, Artur Bekasov, Iain Murray, and George Papamakarios.
+2019. {``Neural Spline Flows.''} \emph{Advances in Neural Information
+Processing Systems} 32.
 
 \bibitem[\citeproctext]{ref-edelman1998geometry}
 Edelman, Alan, Tomás A. Arias, and Steven T. Smith. 1998. {``The

@@ -663,17 +663,19 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
            "best_by_aic": min(rows, key=lambda r: r["aic"])["model"],
            "best_by_bic": min(rows, key=lambda r: r["bic"])["model"], "fits": fits}
     if n_boot > 0:
+        from .loadings import _n_workers
+        workers = _n_workers(n_jobs)
         idx_list = _resample_indices(n, st, int(n_boot), random_state)
-        if n_jobs > 1:
-            chunks = [idx_list[i::n_jobs] for i in range(n_jobs)]
-            with ProcessPoolExecutor(max_workers=n_jobs) as pool:
+        if workers > 1:
+            chunks = [idx_list[i::workers] for i in range(workers)]
+            with ProcessPoolExecutor(max_workers=workers) as pool:
                 parts = list(pool.map(
                     _boot_chunk,
                     [(Z, c, nodes, exog, checked, standardize, triples, active_by_model) for c in chunks],
                 ))
             res = [None] * len(idx_list)
             for i, part in enumerate(parts):
-                res[i::n_jobs] = part
+                res[i::workers] = part
         else:
             res = _boot_chunk((Z, idx_list, nodes, exog, checked, standardize, triples, active_by_model))
         used = [r for r in res if r is not None]
